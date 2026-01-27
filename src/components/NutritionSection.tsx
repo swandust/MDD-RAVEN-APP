@@ -115,7 +115,6 @@ function NutritionPlate({ darkMode, protein, carbs, fiber, sugar, caloriesData, 
           {segments.map((segment, index) => {
             const segmentAngle = (segment.percentage / total) * 360;
             const path = createSegmentPath(currentAngle, currentAngle + segmentAngle);
-            const angle = currentAngle;
             currentAngle += segmentAngle;
             
             return (
@@ -351,9 +350,6 @@ export function NutritionSection({ darkMode }: { darkMode: boolean }) {
   };
 
   const feedback = getFeedbackMessage();
-
-  // Calculate overall nutrition balance
-  const overallBalance = Math.round((percentages.protein + percentages.carbs + percentages.fiber) / 3);
 
   return (
     <div className={`p-5 space-y-6 ${darkMode ? 'text-white' : 'text-slate-900'}`}>

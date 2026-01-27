@@ -3,7 +3,7 @@ import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { Heart, Activity, Droplet, UtensilsCrossed, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, Info, ArrowUp, Share2, FileDown, FileSpreadsheet, Pill, Wind } from 'lucide-react';
+import { Heart, Activity, Droplet, UtensilsCrossed, TrendingUp, AlertTriangle, CheckCircle2, Info, ArrowUp, Share2, FileDown, FileSpreadsheet, Wind } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 
 export function TrendsView({ darkMode }: { darkMode: boolean }) {
