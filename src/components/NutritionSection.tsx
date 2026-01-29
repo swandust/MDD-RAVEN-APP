@@ -3,6 +3,11 @@ import { Edit2, CheckCircle2, AlertTriangle, TrendingUp } from 'lucide-react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { motion } from 'framer-motion';
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = 'https://jtwzikkmixrtwwcogljp.supabase.co'
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0d3ppa2ttaXhydHd3Y29nbGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1Njk2NzEsImV4cCI6MjA4MzE0NTY3MX0.fY2YCKBsXUfEoWGP0l7zuUQFPxxzz9R2ws6w3Nd2kp0'
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 interface FoodEntry {
   time: string;
@@ -230,74 +235,42 @@ export function NutritionSection({ darkMode }: { darkMode: boolean }) {
     const fetchImages = async () => {
       try {
         setLoadingImages(true);
-        
-        // Fetch the HTML from your proxy (this shows the PHP gallery page)
-        const response = await fetch('/raven-proxy/uploads/');
-        const html = await response.text();
-        
-        console.log('Raw HTML:', html); // Debug: Check what you're getting
-        
-        // Parse the HTML
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        
-        // Option 1: Look for <a> tags that link to .jpg files
-        // This is better if your PHP gallery has clickable links
-        const links = Array.from(doc.querySelectorAll('a[href*=".jpg"], a[href*=".jpeg"]'));
-        
-        let imageUrls: string[] = [];
-        
-        if (links.length > 0) {
-          // Extract href attributes from <a> tags
-          imageUrls = links
-            .map(link => {
-              const href = link.getAttribute('href');
-              if (!href) return null;
-              
-              // If it's already a full URL, use it
-              if (href.startsWith('http')) return href;
-              
-              // If it's a relative URL, make it absolute through the proxy
-              return `/raven-proxy/uploads/${href.replace(/^\/+/, '')}`;
-            })
-            .filter((url): url is string => url !== null && url.includes('.jpg'));
+
+        // 1. List all files in the "food-images" bucket
+        const { data, error } = await supabase
+          .storage
+          .from('food-images')
+          .list('', {
+            limit: 10,
+            sortBy: { column: 'created_at', order: 'desc' }, // Get newest first
+          });
+
+        if (error) throw error;
+
+        if (data) {
+          // 2. Turn the filenames into full Public URLs
+          const imageUrls = data.map((file) => {
+            const { data: urlData } = supabase
+              .storage
+              .from('food-images')
+              .getPublicUrl(file.name);
             
-          console.log('Found images from <a> tags:', imageUrls);
-        } else {
-          // Option 2: Fallback - look for image filenames in text
-          const textContent = doc.body.textContent || '';
-          const imageRegex = /\b(\d{4}\.\d{2}\.\d{2}_\d{2}:\d{2}:\d{2}_esp32-cam\.jpg)\b/g;
-          const matches = [...textContent.matchAll(imageRegex)];
-          
-          if (matches.length > 0) {
-            const uniqueFiles = [...new Set(matches.map(m => m[1]))];
-            imageUrls = uniqueFiles.map(filename => 
-              `/raven-proxy/uploads/${filename}`
-            );
-            console.log('Found images from regex:', imageUrls);
-          }
-        }
-        
-        if (imageUrls.length > 0) {
+            return urlData.publicUrl;
+          });
+
           setImages(imageUrls);
-        } else {
-          console.warn('No image files found in HTML');
-          setImageError('No food images detected yet. Upload images from the ESP32.');
         }
         
         setLoadingImages(false);
       } catch (err) {
         console.error('Error fetching images:', err);
-        setImageError('Failed to load images. The ESP32 may not be connected.');
+        setImageError('Failed to load images from Supabase.');
         setLoadingImages(false);
       }
     };
 
     fetchImages();
-    
-    // Optional: Refresh images every 30 seconds for real-time updates
-    const intervalId = setInterval(fetchImages, 30000);
-    
+    const intervalId = setInterval(fetchImages, 30000); // Auto-refresh
     return () => clearInterval(intervalId);
   }, []);
   
