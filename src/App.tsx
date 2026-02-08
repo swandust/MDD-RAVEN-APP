@@ -137,21 +137,12 @@ function App() {
     <Router>
       <AuthProvider>
         <Routes>
-          {/* Login route - accessible without authentication */}
-          <Route path="/login" element={<LoginPage />} />
-          
-          {/* Main dashboard route with tab navigation */}
-          <Route path="/dashboard/*" element={
-            <ProtectedRoute>
-              <MainApp />
-            </ProtectedRoute>
-          } />
-          
-          {/* Redirect root to login */}
-          <Route path="/" element={<Navigate to="/login" replace />} />
-          
-          {/* Catch-all route - redirect to login */}
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          {/* <Route path="/login" element={<LoginPage />} /> */}
+
+          <Route path="/dashboard/*" element={<MainApp />} />
+
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AuthProvider>
     </Router>
