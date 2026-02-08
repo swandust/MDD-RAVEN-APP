@@ -2,282 +2,270 @@ import logging
 import os
 import time
 import tempfile
-from typing import Dict, List, Optional
-
 import requests
+import urllib.parse
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple, Set
 from ultralytics import YOLO
-
-
 from dotenv import load_dotenv
-import os
+
+# Import the database we created in Part 2
+from nutrition_data import get_nutrition
 
 load_dotenv()
 
+# --- CONFIGURATION ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-NUTRITION_DB: Dict[str, Dict[str, float]] = {
-    "bubble_milk_tea": {"portion_g": 500, "energy_kcal": 280, "sodium_mg": 45},
-    "chicken_rice": {"portion_g": 318, "energy_kcal": 557, "sodium_mg": 1399},
-    "hokkien_prawn_mee": {"portion_g": 442, "energy_kcal": 522, "sodium_mg": 1423},
-    "char_siew_pau": {"portion_g": 54, "energy_kcal": 143, "sodium_mg": 198},
-    "popiah": {"portion_g": 162, "energy_kcal": 243, "sodium_mg": 635},
-    "apple": {"portion_g": 180, "energy_kcal": 93, "sodium_mg": 2},
-    "egg_tart": {"portion_g": 59, "energy_kcal": 208, "sodium_mg": 110},
-    "ice_cream_vanilla": {"portion_g": 240, "energy_kcal": 497, "sodium_mg": 192},
-    "ice_cream_chocolate": {"portion_g": 240, "energy_kcal": 518, "sodium_mg": 182},
-    "chicken_wing": {"portion_g": 38, "energy_kcal": 84, "sodium_mg": 184},
-    "fish_and_chips": {"portion_g": 337, "energy_kcal": 1010, "sodium_mg": 2024},
-}
-
-ALIASES: Dict[str, str] = {
-    "boba": "bubble_milk_tea",
-    "bubble_tea": "bubble_milk_tea",
-    "boba_milk_tea": "bubble_milk_tea",
-    "milk_tea": "bubble_milk_tea",
-    "char_siew_pao": "char_siew_pau",
-    "egg_tart": "egg_tart",
-    "hokkien_mee": "hokkien_prawn_mee",
-    "prawn_mee": "hokkien_prawn_mee",
-    "chicken_wings": "chicken_wing",
-    "fish_chips": "fish_and_chips",
-}
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+BUCKET_NAME = os.getenv("SUPABASE_BUCKET", "food-images").strip()
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
+CONF_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.25"))
+MODEL_PATH = os.getenv("MODEL_PATH", "best.pt")
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+UTENSIL_CLASSES = {"fork", "spoon", "knife"}
 
+# GLOBAL CACHE: Stores file IDs that we have already handled in this session.
+# This prevents the script from analyzing the same file 100 times.
+PROCESSED_CACHE: Set[str] = set()
 
-def normalize_label(label: str) -> str:
-    return label.strip().lower().replace(" ", "_").replace("-", "_")
+def get_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+    }
 
+# --- SUPABASE HELPERS ---
 
-def map_food_name(label: str) -> Optional[str]:
-    norm = normalize_label(label)
-    if norm in NUTRITION_DB:
-        return norm
-    if norm in ALIASES:
-        return ALIASES[norm]
-    return None
+def fetch_recent_logs(food_name: str, minutes: int = 30) -> bool:
+    """Checks if a specific food class was logged in the last X minutes."""
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/food_logs"
+    cutoff_time = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    
+    params = {
+        "select": "id",
+        "food_name": f"eq.{food_name}",
+        "created_at": f"gt.{cutoff_time}",
+        "limit": "1"
+    }
+    
+    try:
+        r = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        r.raise_for_status()
+        return len(r.json()) > 0
+    except Exception as e:
+        logging.error(f"Error checking recent logs: {e}")
+        return False
 
+def check_food_status(food_name: str, minutes: int = 30) -> bool:
+    """Returns True if food is finished (not detected recently), False if still eating."""
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/food_logs"
+    cutoff_time = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    
+    params = {
+        "select": "id",
+        "food_name": f"eq.{food_name}",
+        "created_at": f"gt.{cutoff_time}",
+        "food_status": "is.false",  # Look for 'unfinished' entries
+        "limit": "1"
+    }
+    
+    try:
+        r = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        r.raise_for_status()
+        return len(r.json()) == 0  # If 0 found, it means food is likely finished.
+    except Exception as e:
+        logging.error(f"Error checking food status: {e}")
+        return True
 
-def build_public_url(supabase_url: str, bucket: str, path: str) -> str:
-    base = supabase_url.rstrip("/")
-    return f"{base}/storage/v1/object/public/{bucket}/{path}"
-
-
-def list_storage_objects(
-    supabase_url: str,
-    supabase_key: str,
-    bucket: str,
-    prefix: str,
-    limit: int,
-    offset: int,
-) -> List[Dict]:
-    url = f"{supabase_url.rstrip('/')}/storage/v1/object/list/{bucket}"
+def list_new_images(bucket: str) -> List[Dict]:
+    """Lists the top 10 newest files in the bucket."""
+    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/list/{bucket}"
+    
     payload = {
-        "prefix": prefix,
-        "limit": limit,
-        "offset": offset,
-        "sortBy": {"column": "created_at", "order": "desc"},
+        "prefix": "",
+        "limit": 10,
+        "offset": 0,
+        "sortBy": {
+            "column": "created_at", 
+            "order": "desc"
+        }
     }
+    
     headers = {
-        "apikey": supabase_key,
-        "Authorization": f"Bearer {supabase_key}",
-        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
     }
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    
+    r = requests.post(url, json=payload, headers=headers, timeout=10)
+    
+    if r.status_code != 200:
+        logging.error(f"List images failed: {r.status_code} - {r.text}")
+        r.raise_for_status()
+        
+    return r.json()
 
+def check_if_image_processed(image_full_url: str) -> bool:
+    """Checks if this URL is already in the database."""
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/food_logs"
+    params = {"select": "id", "image_url": f"eq.{image_full_url}", "limit": "1"}
+    r = requests.get(url, headers=get_headers(), params=params)
+    return len(r.json()) > 0
 
-def image_already_logged(supabase_url: str, supabase_key: str, image_url: str) -> bool:
-    url = f"{supabase_url.rstrip('/')}/rest/v1/food_logs"
+def insert_log(row: Dict):
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/food_logs"
+    r = requests.post(url, json=[row], headers=get_headers())
+    r.raise_for_status()
+
+# --- IMAGE & MODEL ---
+
+def download_image(filename: str) -> bytes:
+    clean_name = filename.lstrip('/')
+    # Handle spaces in filenames properly
+    safe_name = urllib.parse.quote(clean_name) 
+    
+    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/authenticated/{BUCKET_NAME}/{safe_name}"
+    
     headers = {
-        "apikey": supabase_key,
-        "Authorization": f"Bearer {supabase_key}",
-        "Accept": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}"
     }
-    params = {"select": "id", "image_url": f"eq.{image_url}", "limit": "1"}
-    response = requests.get(url, headers=headers, params=params, timeout=30)
-    response.raise_for_status()
-    return len(response.json()) > 0
+    
+    r = requests.get(url, headers=headers, timeout=30)
+    r.raise_for_status()
+    return r.content
 
-
-def insert_food_logs(
-    supabase_url: str,
-    supabase_key: str,
-    rows: List[Dict],
-) -> None:
-    if not rows:
-        return
-    url = f"{supabase_url.rstrip('/')}/rest/v1/food_logs"
-    headers = {
-        "apikey": supabase_key,
-        "Authorization": f"Bearer {supabase_key}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal",
-    }
-    response = requests.post(url, json=rows, headers=headers, timeout=30)
-    response.raise_for_status()
-
-
-def download_image(image_url: str) -> bytes:
-    response = requests.get(image_url, timeout=60)
-    response.raise_for_status()
-    return response.content
-
-
-def load_model(model_path: str) -> YOLO:
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model not found at {model_path}")
-    return YOLO(model_path)
-
-
-def detect_foods(
-    model: YOLO,
-    image_bytes: bytes,
-    conf_threshold: float,
-) -> List[Dict]:
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
-        tmp_file.write(image_bytes)
-        temp_path = tmp_file.name
+def run_inference(model: YOLO, image_bytes: bytes) -> Tuple[List[Dict], bool]:
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        tmp.write(image_bytes)
+        tmp_path = tmp.name
 
     try:
-        results = model(temp_path, conf=conf_threshold, verbose=False)
-        if not results:
-            return []
-        result = results[0]
-        names = getattr(result, "names", None) or getattr(model, "names", {})
-
+        results = model(tmp_path, conf=CONF_THRESHOLD, verbose=False)
+        if not results: return [], False
+        
         detections = []
-        for box in result.boxes:
-            class_id = int(box.cls[0])
-            confidence = float(box.conf[0])
-            label = names.get(class_id, str(class_id))
-            mapped_name = map_food_name(label)
-            if not mapped_name:
-                continue
-            detections.append(
-                {
-                    "food_name": mapped_name,
-                    "confidence": round(confidence, 4),
-                }
-            )
-        return detections
+        has_utensil = False
+        
+        for box in results[0].boxes:
+            cls_id = int(box.cls[0])
+            name = model.names[cls_id] 
+            conf = float(box.conf[0])
+            
+            if name.lower() in UTENSIL_CLASSES:
+                has_utensil = True
+            else:
+                detections.append({"name": name, "conf": conf})
+                
+        return detections, has_utensil
     finally:
-        try:
-            os.remove(temp_path)
-        except OSError:
-            pass
+        if os.path.exists(tmp_path): os.remove(tmp_path)
 
+# --- MAIN WORKER ---
 
-def select_best_detections(detections: List[Dict]) -> List[Dict]:
-    best_by_food: Dict[str, Dict] = {}
-    for det in detections:
-        name = det["food_name"]
-        if name not in best_by_food or det["confidence"] > best_by_food[name]["confidence"]:
-            best_by_food[name] = det
-    return list(best_by_food.values())
+def process_image(model: YOLO, file_obj: Dict):
+    name = file_obj.get("name")
+    file_id = file_obj.get("id", name) # Use ID if available, else name
+    
+    if not name or os.path.splitext(name)[1].lower() not in IMAGE_EXTENSIONS:
+        return
 
+    # 1. MEMORY CHECK (Using File ID)
+    if file_id in PROCESSED_CACHE:
+        return
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Construct Public URL
+    safe_name = urllib.parse.quote(name)
+    image_url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{BUCKET_NAME}/{safe_name}"
 
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
-    bucket = os.getenv("SUPABASE_BUCKET", "food-images")
-    prefix = os.getenv("SUPABASE_PREFIX", "")
-    poll_interval = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
-    conf_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", "0.25"))
-    list_limit = int(os.getenv("STORAGE_LIST_LIMIT", "100"))
-    max_pages = int(os.getenv("STORAGE_MAX_PAGES", "10"))
-    log_top_only = os.getenv("LOG_TOP_ONLY", "false").lower() == "true"
+    # 2. DB CHECK
+    if check_if_image_processed(image_url):
+        # Already in DB, add to memory cache so we don't ask DB again
+        PROCESSED_CACHE.add(file_id)
+        return 
 
-    if not supabase_url or not supabase_key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) must be set.")
+    logging.info(f"Processing new image: {name}")
+    
+    try:
+        img_bytes = download_image(name) 
+        detections, has_utensil = run_inference(model, img_bytes)
+    except Exception as e:
+        logging.error(f"Failed to process image {name}: {e}")
+        return 
 
-    model_path = os.getenv(
-        "MODEL_PATH",
-        os.path.join(os.path.dirname(__file__), "..", "uploads", "best.pt"),
-    )
-    model_path = os.path.abspath(model_path)
-    model = load_model(model_path)
+    # 3. Handle No Detections
+    if not detections:
+        logging.info(f"No food detected in {name}. Skipping.")
+        PROCESSED_CACHE.add(file_id) # Mark handled
+        return 
 
-    processed_urls = set()
+    best_det = max(detections, key=lambda x: x['conf'])
+    food_class = best_det['name']
+    
+    # 4. Check 30-Minute Rule
+    if fetch_recent_logs(food_class, minutes=30):
+        logging.info(f"Skipping {food_class}: Logged within last 30 minutes.")
+        PROCESSED_CACHE.add(file_id) # Mark handled
+        return 
 
+    # 5. Food Status Check
+    food_status = check_food_status(food_class, minutes=30)
+    
+    # 6. Prepare Data
+    nutrition = get_nutrition(food_class)
+    nutrients = nutrition.get("nutrients", {})
+    
+    row = {
+        "food_name": food_class,
+        "image_url": image_url,
+        "confidence": best_det['conf'],
+        "utensil": has_utensil,
+        "food_status": food_status,
+        "portion_g": nutrition.get("serving_g"),
+        "energy_kcal": nutrients.get("energy_kcal"),
+        "protein_g": nutrients.get("protein_g"),
+        "carbs_g": nutrients.get("carbs_g"),
+        "fat_g": nutrients.get("fat_g"),
+        "fiber_g": nutrients.get("fiber_g"),
+        "sugar_g": nutrients.get("sugar_g"),
+        "sodium_mg": nutrients.get("sodium_mg"),
+        "potassium_mg": nutrients.get("potassium_mg"),
+        "magnesium_mg": nutrients.get("magnesium_mg"),
+        "calcium_mg": nutrients.get("calcium_mg"),
+        "fluid_ml": nutrients.get("fluid_ml"),
+        "caffeine_mg": nutrients.get("caffeine_mg"),
+    }
+
+    insert_log(row)
+    PROCESSED_CACHE.add(file_id) # Add to cache on success
+    logging.info(f"Logged {food_class} successfully (Status: {food_status})")
+
+def main():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise ValueError("Supabase credentials missing.")
+    
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+    logging.info(f"Loading model from {MODEL_PATH}...")
+    model = YOLO(MODEL_PATH)
+    
+    logging.info("Worker started.")
+    
     while True:
         try:
-            logging.info("Checking Supabase bucket for new images...")
-            objects: List[Dict] = []
-            offset = 0
-            for _ in range(max_pages):
-                batch = list_storage_objects(
-                    supabase_url, supabase_key, bucket, prefix, list_limit, offset
-                )
-                if not batch:
-                    break
-                objects.extend(batch)
-                if len(batch) < list_limit:
-                    break
-                offset += list_limit
-
-            for obj in objects:
-                name = obj.get("name") or ""
-                if not name:
-                    continue
-                if prefix and not name.startswith(prefix):
-                    path = f"{prefix.rstrip('/')}/{name}"
-                else:
-                    path = name
-
-                if not os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
-                    continue
-
-                image_url = build_public_url(supabase_url, bucket, path)
-                if image_url in processed_urls:
-                    continue
-
-                if image_already_logged(supabase_url, supabase_key, image_url):
-                    processed_urls.add(image_url)
-                    continue
-
-                logging.info("Processing image %s", image_url)
-                image_bytes = download_image(image_url)
-                detections = detect_foods(model, image_bytes, conf_threshold)
-                if not detections:
-                    processed_urls.add(image_url)
-                    logging.info("No known foods detected for %s", image_url)
-                    continue
-
-                if log_top_only:
-                    detections = sorted(detections, key=lambda d: d["confidence"], reverse=True)[:1]
-                else:
-                    detections = select_best_detections(detections)
-
-                rows = []
-                for det in detections:
-                    nutrition = NUTRITION_DB.get(det["food_name"])
-                    if not nutrition:
-                        continue
-                    rows.append(
-                        {
-                            "food_name": det["food_name"],
-                            "portion_g": nutrition["portion_g"],
-                            "energy_kcal": nutrition["energy_kcal"],
-                            "sodium_mg": nutrition["sodium_mg"],
-                            "image_url": image_url,
-                            "confidence": det["confidence"],
-                        }
-                    )
-
-                insert_food_logs(supabase_url, supabase_key, rows)
-                processed_urls.add(image_url)
-                logging.info("Inserted %d rows for %s", len(rows), image_url)
-
-        except Exception:
-            logging.exception("Worker cycle failed")
-
-        time.sleep(poll_interval)
-
+            # Heartbeat log to show it's alive
+            logging.info(f"[Heartbeat] Scanning for new images... (Cache: {len(PROCESSED_CACHE)})")
+            
+            files = list_new_images(BUCKET_NAME)
+            for f in files:
+                process_image(model, f)
+                
+        except Exception as e:
+            logging.error(f"Cycle error: {e}")
+        
+        time.sleep(POLL_INTERVAL)
 
 if __name__ == "__main__":
     main()
