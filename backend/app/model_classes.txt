@@ -1,0 +1,13 @@
+0: chicken_rice
+1: hokkien_prawn_mee
+2: char_siew_pau
+3: popiah
+4: apple
+5: egg_tart
+6: ice_cream_vanilla
+7: ice_cream_chocolate
+8: chicken_wing
+9: fish_and_chips
+10: spoon
+11: fork
+12: orange

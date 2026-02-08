@@ -1,15 +1,10 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  server: {
-    proxy: {
-      '/raven-proxy': {
-        target: 'https://raven-band-demo.xyz',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/raven-proxy/, ''),
-      },
-    },
+  resolve: {
+    // This forces Vite to use only ONE copy of React + React Router
+    dedupe: ['react', 'react-dom', 'react-router-dom'],
   },
-})
+});
