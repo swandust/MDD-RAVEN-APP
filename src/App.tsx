@@ -7,8 +7,6 @@ import { HydrationTracker } from './components/HydrationTracker';
 import { TrendsView } from './components/TrendsView';
 import { SettingsView } from './components/SettingsView';
 import { AuthProvider } from './contexts/AuthContext';
-import { LoginPage } from './components/LoginPage';
-import { ProtectedRoute } from './components/ProtectedRoute';
 
 // Main app component with tab navigation (only shown when authenticated)
 function MainApp() {
