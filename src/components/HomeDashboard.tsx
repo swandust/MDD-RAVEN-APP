@@ -41,6 +41,8 @@ interface Alert {
   delta_hr: number | null;
   map_value: number | null;
   delta_map: number | null;
+  baseline_hr: number | null;
+  baseline_map: number | null;
 }
 
 export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
@@ -48,7 +50,6 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
   const [systolic, setSystolic] = useState(118);
   const [diastolic, setDiastolic] = useState(76);
   const [statusText, setStatusText] = useState('Stable');
-  const [showAlert, setShowAlert] = useState(false);
   const [systolicHistory, setSystolicHistory] = useState<number[]>([]);
   const [heartRateHistory, setHeartRateHistory] = useState<number[]>([]);
   const [todayDate] = useState(new Date().toLocaleDateString('en-US', { 
@@ -183,17 +184,12 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
     };
   }, []);
 
-  useEffect(() => {
-    setShowAlert(systolic > 140 || heartRate > 100 || systolic < 90);
-  }, [heartRate, systolic]);
-
   const statusColor = statusText.includes('Caution') 
     ? 'bg-amber-100 text-amber-800 border-amber-300' 
     : 'bg-emerald-100 text-emerald-800 border-emerald-300';
 
   // Calculate POTS-related metrics
   const pulsePressure = systolic - diastolic;
-  const potsRisk = pulsePressure < 40 || (heartRate > 100 && systolic < 110);
 
   // Calculate percentages for progress bars
   const sodiumPercentage = Math.min((dailySodium / sodiumGoal) * 100, 100);
