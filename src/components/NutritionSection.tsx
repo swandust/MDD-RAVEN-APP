@@ -217,7 +217,6 @@ function DateFilter({ darkMode, selectedDate, onDateChange }: DateFilterProps) {
             return (
               <Button
                 key={option.label}
-                variant={isSelected ? "default" : "outline"}
                 size="sm"
                 onClick={() => {
                   if (option.isWeek) {
@@ -232,8 +231,11 @@ function DateFilter({ darkMode, selectedDate, onDateChange }: DateFilterProps) {
                   }
                 }}
                 className={isSelected ? 
-                  "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white" : 
-                  `${darkMode ? '' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`
+                  "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium" : 
+                  `${darkMode ? 
+                    'bg-slate-600 text-white hover:bg-slate-500 font-medium' : 
+                    'bg-purple-200 text-purple-900 hover:bg-purple-300 font-medium'
+                  }`
                 }
               >
                 {option.label}
@@ -241,13 +243,13 @@ function DateFilter({ darkMode, selectedDate, onDateChange }: DateFilterProps) {
             );
           })}
         </div>
-        
+                
         {!isToday && (
           <Button
             variant="ghost"
             size="sm"
             onClick={setToday}
-            className={`w-full ${darkMode ? 'text-slate-300 hover:text-slate-100 hover:bg-slate-700/50' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'}`}
+            className={`w-full ${darkMode ? 'text-slate-100 bg-purple-900/30 hover:bg-purple-800/50 border border-purple-700' : 'text-slate-900 bg-purple-100 hover:bg-purple-200 border border-purple-300'}`}
           >
             Return to Today
           </Button>
@@ -1103,7 +1105,62 @@ export function NutritionSection({ darkMode }: { darkMode: boolean }) {
         )}
       </Card>
       
-
+        {/* Recent Food Images from Supabase Bucket - UPDATED */}
+        <Card className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl p-4 shadow-sm`}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg">Food Images for {formatSelectedDate()}</h3>
+            <Badge className={`${darkMode ? 'bg-slate-700 text-slate-300' : 'bg-slate-100 text-slate-800'}`}>
+              {dateRangeLogs.filter(log => log.image_url).length} images
+            </Badge>
+          </div>
+          
+          {loadingLogs ? (
+            <p className="text-center text-slate-500 py-4">Loading images...</p>
+          ) : dateRangeLogs.filter(log => log.image_url).length === 0 ? (
+            <p className="text-center text-slate-500 py-4">No food images found for this date.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              {dateRangeLogs
+                .filter(log => log.image_url)
+                .map((log, index) => (
+                  <motion.div
+                    key={log.id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.3, delay: index * 0.1 }}
+                    className="relative group overflow-hidden rounded-xl"
+                  >
+                    <img
+                      src={log.image_url || ''}
+                      alt={`Food: ${log.food_name}`}
+                      className="w-full h-40 object-cover rounded-xl shadow-md group-hover:scale-105 transition-transform duration-300"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x200/374151/FFFFFF?text=Image+Not+Found';
+                      }}
+                    />
+                    {/* Black overlay on hover - NEW */}
+                    <div className="absolute inset-0 bg-black opacity-0 group-hover:opacity-50 transition-opacity duration-300 rounded-xl"></div>
+                    
+                    <Badge className="absolute top-2 right-2 bg-emerald-100 text-emerald-800 border-emerald-300 border text-xs">
+                      Auto-Detected
+                    </Badge>
+                    <div className="absolute bottom-0 left-0 right-0 p-2 text-white group-hover:text-gray-300 transition-colors duration-300">
+                      <p className="text-xs truncate">{log.food_name}</p>
+                    </div>
+                  </motion.div>
+                ))}
+            </div>
+          )}
+          
+          <div className={`mt-4 text-xs text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            Images from food logs for the selected date
+            {dateRangeLogs.filter(log => log.image_url).length > 0 && (
+              <span className="block mt-1">
+                Showing {dateRangeLogs.filter(log => log.image_url).length} images
+              </span>
+            )}
+          </div>
+        </Card>
         {/* Recent Food Images from Supabase Bucket */}
         <Card className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl p-4 shadow-sm`}>
           <div className="flex items-center justify-between mb-4">
