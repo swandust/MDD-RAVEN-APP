@@ -1,14 +1,47 @@
 // homedashboard.tsx (rewritten)
 
-import { useState, useEffect } from 'react';
-import { Heart, Activity, Calendar, AlertTriangle, Droplet, Beaker } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Heart, Activity, AlertTriangle, Bell, X, Calendar, Beaker, Droplet } from 'lucide-react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@supabase/supabase-js';
+import { SyncopeDetector } from '../utils/syncopeDetector';
 
 // Initialize Supabase
 const supabase = createClient('https://jtwzikkmixrtwwcogljp.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0d3ppa2ttaXhydHd3Y29nbGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1Njk2NzEsImV4cCI6MjA4MzE0NTY3MX0.fY2YCKBsXUfEoWGP0l7zuUQFPxxzz9R2ws6w3Nd2kp0');
+
+// Audio alerts
+const playAlertSound = (frequency: number, duration: number) => {
+  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+  
+  oscillator.frequency.value = frequency;
+  oscillator.type = 'sine';
+  
+  gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+  
+  oscillator.start(audioContext.currentTime);
+  oscillator.stop(audioContext.currentTime + duration);
+};
+
+interface Alert {
+  id: string;
+  session_id: string;
+  alert_type: string;
+  severity: 'warning' | 'critical';
+  message: string;
+  created_at: string;
+  heart_rate: number | null;
+  delta_hr: number | null;
+  map_value: number | null;
+  delta_map: number | null;
+}
 
 export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
   const [heartRate, setHeartRate] = useState(72);
@@ -24,6 +57,13 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
     month: 'long', 
     day: 'numeric' 
   }));
+
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() =>
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
+  );
+  const detectorRef = useRef(new SyncopeDetector());
+  const alertIdsRef = useRef(new Set<string>());
 
   // New states for nutrition data
   const [dailySodium, setDailySodium] = useState(0);
@@ -159,8 +199,91 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
   const sodiumPercentage = Math.min((dailySodium / sodiumGoal) * 100, 100);
   const waterPercentage = Math.min((dailyWater / waterGoal) * 100, 100);
 
+  // Request notification permission
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && notificationPermission === 'default') {
+      Notification.requestPermission().then(setNotificationPermission);
+    }
+  }, [notificationPermission]);
+
+  // Subscribe to real-time vitals
+  useEffect(() => {
+    const channel = supabase
+      .channel('vitals-monitoring')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'processed_vitals',
+        },
+        (payload) => {
+          const vital = payload.new;
+          handleNewVital(vital);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleNewVital = (vital: any) => {
+    const alert = detectorRef.current.processVital(vital);
+
+    if (alert) {
+      const alertId = `${alert.alert_type}-${alert.session_id}-${Date.now()}`;
+      
+      if (alertIdsRef.current.has(alertId)) return;
+      alertIdsRef.current.add(alertId);
+
+      const fullAlert: Alert = {
+        id: alertId,
+        created_at: new Date().toISOString(),
+        ...alert,
+      };
+
+      setAlerts(prev => [...prev, fullAlert]);
+      triggerNotifications(fullAlert);
+
+      setTimeout(() => {
+        dismissAlert(alertId);
+      }, 5 * 60 * 1000);
+    }
+  };
+
+  const triggerNotifications = (alert: Alert) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && notificationPermission === 'granted') {
+      new Notification('⚠️ POTS Syncope Alert', {
+        body: alert.message,
+        tag: alert.id,
+        requireInteraction: alert.severity === 'critical',
+      });
+    }
+
+    try {
+      if (alert.severity === 'critical') {
+        playAlertSound(800, 0.5);
+        if ('vibrate' in navigator) {
+          navigator.vibrate([200, 100, 200, 100, 200]);
+        }
+      } else {
+        playAlertSound(400, 0.3);
+      }
+    } catch (e) {
+      console.log('Audio play failed:', e);
+    }
+  };
+
+  const dismissAlert = (alertId: string) => {
+    setAlerts(prev => prev.filter(a => a.id !== alertId));
+    alertIdsRef.current.delete(alertId);
+  };
+
   return (
     <div className={`p-5 ${darkMode ? 'text-white' : 'text-slate-900'}`}>
+    
       {/* Header with Date */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
@@ -175,50 +298,101 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
         </Badge>
       </div>
 
-      {/* POTS Warning Banner */}
-      {potsRisk && (
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }} 
-          animate={{ opacity: 1, y: 0 }} 
-          className="mb-4"
-        >
-          <Card className={`${darkMode ? 'bg-amber-900/30 border-amber-700' : 'bg-amber-50 border-amber-300'} border-2 p-4 rounded-2xl`}>
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className={`${darkMode ? 'text-amber-200' : 'text-amber-800'}`}>
-                  <strong>⚠️ POTS Alert</strong>
-                </p>
-                <p className={`text-sm mt-1 ${darkMode ? 'text-amber-300' : 'text-amber-700'}`}>
-                  Narrow pulse pressure or orthostatic tachycardia detected.
-                </p>
-              </div>
-            </div>
-          </Card>
-        </motion.div>
-      )}
+      {/* New Syncope Alert  */}
+        <AnimatePresence>
+          {alerts.map(alert => (
+            <motion.div
+              key={alert.id}
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 100, scale: 0.95 }}
+              className="mb-4"
+            >
+              <Card
+                className={`
+                  border-2 p-4 rounded-2xl
+                  ${alert.severity === 'critical'
+                    ? darkMode 
+                      ? 'bg-red-900/40 border-red-600' 
+                      : 'bg-red-50 border-red-400'
+                    : darkMode
+                      ? 'bg-amber-900/30 border-amber-600'
+                      : 'bg-amber-50 border-amber-300'
+                  }
+                `}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    {alert.severity === 'critical' ? (
+                      <AlertTriangle className="w-6 h-6 text-red-600 animate-pulse" />
+                    ) : (
+                      <Bell className="w-5 h-5 text-amber-600" />
+                    )}
+                  </div>
+                  
+                  <div className="flex-1">
+                    <p className={`font-bold ${
+                      alert.severity === 'critical'
+                        ? darkMode ? 'text-red-200' : 'text-red-800'
+                        : darkMode ? 'text-amber-200' : 'text-amber-800'
+                    }`}>
+                      {alert.severity === 'critical' ? '🚨 Critical POTS Event Detected' : '⚠️ POTS Event Detected'}
+                    </p>
+                    
+                    <p className={`text-sm mt-1 ${
+                      alert.severity === 'critical'
+                        ? darkMode ? 'text-red-300' : 'text-red-700'
+                        : darkMode ? 'text-amber-300' : 'text-amber-700'
+                    }`}>
+                      {alert.message}
+                    </p>
 
-      {/* General Warning Banner */}
-      <motion.div 
-        initial={{ opacity: 0, y: -20 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        exit={{ opacity: 0, y: -20 }} 
-        className="mb-4"
-      >
-        {showAlert && (
-          <Card className={`${darkMode ? 'bg-red-900/30 border-red-700' : 'bg-red-50 border-red-300'} border-2 p-4 rounded-2xl`}>
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className={`${darkMode ? 'text-red-200' : 'text-red-800'}`}>
-                  <strong>⚠️ Possible syncope detected.</strong>
-                </p>
-                <p className={`text-sm mt-1 ${darkMode ? 'text-red-300' : 'text-red-700'}`}>Sit or lie down immediately.</p>
-              </div>
-            </div>
-          </Card>
-        )}
-      </motion.div>
+                    {/* Show detailed metrics */}
+                    <div className={`text-xs mt-2 space-y-1 ${
+                      darkMode ? 'text-gray-300' : 'text-gray-700'
+                    }`}>
+                      {alert.baseline_hr && alert.heart_rate && (
+                        <div>
+                          <span className="font-medium">HR Change:</span> {alert.baseline_hr.toFixed(0)} → {alert.heart_rate.toFixed(0)} bpm 
+                          {alert.delta_hr && <span className="font-semibold"> (+{alert.delta_hr.toFixed(0)} bpm)</span>}
+                        </div>
+                      )}
+                      {alert.baseline_map && alert.map_value && (
+                        <div>
+                          <span className="font-medium">MAP:</span> {alert.baseline_map.toFixed(0)} → {alert.map_value.toFixed(0)} mmHg
+                          {alert.delta_map && <span> ({alert.delta_map > 0 ? '+' : ''}{alert.delta_map.toFixed(0)} mmHg)</span>}
+                        </div>
+                      )}
+                    </div>
+
+                    {alert.severity === 'critical' && (
+                      <p className={`text-sm mt-2 font-semibold ${
+                        darkMode ? 'text-red-200' : 'text-red-800'
+                      }`}>
+                        → Sit or lie down immediately. Elevate legs if possible.
+                      </p>
+                    )}
+                    
+                    <p className={`text-xs mt-2 ${
+                      darkMode ? 'text-gray-400' : 'text-gray-600'
+                    }`}>
+                      {new Date(alert.created_at).toLocaleTimeString()}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => dismissAlert(alert.id)}
+                    className={`flex-shrink-0 p-1 rounded-full hover:bg-black/10 ${
+                      darkMode ? 'text-gray-400' : 'text-gray-600'
+                    }`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </Card>
+            </motion.div>
+          ))}
+        </AnimatePresence>
 
       {/* Vital Cards - Updated with matching background */}
       <div className="grid grid-cols-2 gap-3 mb-4">
