@@ -6,6 +6,8 @@ import { NutritionSection } from './components/NutritionSection';
 import { HydrationTracker } from './components/HydrationTracker';
 import { TrendsView } from './components/TrendsView';
 import { SettingsView } from './components/SettingsView';
+import { LoginPage } from './components/LoginPage';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
 
 // Main app component with tab navigation (only shown when authenticated)
@@ -135,9 +137,16 @@ function App() {
     <Router>
       <AuthProvider>
         <Routes>
-          {/* <Route path="/login" element={<LoginPage />} /> */}
+          <Route path="/login" element={<LoginPage />} />
 
-          <Route path="/dashboard/*" element={<MainApp />} />
+          <Route
+            path="/dashboard/*"
+            element={
+              <ProtectedRoute>
+                <MainApp />
+              </ProtectedRoute>
+            }
+          />
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
