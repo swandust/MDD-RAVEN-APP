@@ -5,11 +5,8 @@ import { Heart, Activity, AlertTriangle, Bell, X, Calendar, Beaker, Droplet } fr
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../lib/supabase';
 import { SyncopeDetector } from '../utils/syncopeDetector';
-
-// Initialize Supabase
-const supabase = createClient('https://jtwzikkmixrtwwcogljp.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0d3ppa2ttaXhydHd3Y29nbGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1Njk2NzEsImV4cCI6MjA4MzE0NTY3MX0.fY2YCKBsXUfEoWGP0l7zuUQFPxxzz9R2ws6w3Nd2kp0');
 
 // Audio alerts
 const playAlertSound = (frequency: number, duration: number) => {
