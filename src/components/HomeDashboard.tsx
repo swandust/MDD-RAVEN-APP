@@ -6,6 +6,7 @@ import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import { SyncopeDetector } from '../utils/syncopeDetector';
 
 // Audio alerts
@@ -43,6 +44,8 @@ interface Alert {
 }
 
 export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
+  const { user } = useAuth();
+  const displayName = user?.user_metadata?.full_name?.split(' ')[0] ?? 'there';
   const [heartRate, setHeartRate] = useState(72);
   const [systolic, setSystolic] = useState(118);
   const [diastolic, setDiastolic] = useState(76);
@@ -280,7 +283,7 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
       {/* Header with Date */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl">Hi Chi Wei 👋</h1>
+          <h1 className="text-2xl">Hi {displayName} 👋</h1>
           <div className="flex items-center gap-2 text-sm">
             <Calendar className="w-4 h-4" />
             <span>{todayDate}</span>

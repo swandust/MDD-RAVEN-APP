@@ -8,6 +8,7 @@ import { TrendsView } from './components/TrendsView';
 import { SettingsView } from './components/SettingsView';
 import { LoginPage } from './components/LoginPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { BiodataOnboarding } from './components/BiodataOnboarding';
 import { AuthProvider } from './contexts/AuthContext';
 
 // Main app component with tab navigation (only shown when authenticated)
@@ -138,6 +139,15 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+
+          <Route
+            path="/onboarding"
+            element={
+              <ProtectedRoute>
+                <BiodataOnboarding />
+              </ProtectedRoute>
+            }
+          />
 
           <Route
             path="/dashboard/*"
