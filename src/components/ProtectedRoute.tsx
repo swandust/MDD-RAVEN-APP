@@ -13,7 +13,9 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     )
   }
 
-  if (!user) {
+  const isDemoMode = localStorage.getItem('demoMode') === 'true';
+
+  if (!user && !isDemoMode) {
     return <Navigate to="/login" />
   }
 

@@ -52,6 +52,8 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
   const [statusText, setStatusText] = useState('Stable');
   const [systolicHistory, setSystolicHistory] = useState<number[]>([]);
   const [heartRateHistory, setHeartRateHistory] = useState<number[]>([]);
+  const [hoveredBP, setHoveredBP] = useState<number | null>(null);
+  const [hoveredHR, setHoveredHR] = useState<number | null>(null);
   const [todayDate] = useState(new Date().toLocaleDateString('en-US', { 
     weekday: 'long', 
     year: 'numeric', 
@@ -496,47 +498,115 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
         </Card>
       </div>
 
-      {/* Blood Pressure Trend Graph - Updated background */}
+      {/* Blood Pressure Trend Graph */}
       <Card className={`${darkMode ? 'bg-gradient-to-br from-purple-900/40 to-pink-900/40 border-purple-800' : 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200'} border rounded-2xl p-4 shadow-sm mb-4`}>
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-1">
           <Activity className={`w-4 h-4 ${darkMode ? 'text-purple-300' : 'text-purple-500'}`} />
           <span className="text-sm font-medium">Blood Pressure Trend (Systolic)</span>
         </div>
-        <div className="h-32 flex items-end gap-1">
-          {systolicHistory.map((value, index) => (
-            <motion.div
-              key={index}
-              initial={{ height: 0 }}
-              animate={{ height: `${Math.min((value / 200) * 100, 100)}%` }}
-              className={`flex-1 ${value > 140 || value < 90 ? 'bg-red-500' : darkMode ? 'bg-purple-400' : 'bg-purple-500'} rounded-t-sm`}
-              title={`${value} mmHg`}
-            />
-          ))}
+        <p className={`text-xs mb-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          Normal: 90–140 mmHg · <span className="text-green-500 font-medium">Green = normal</span> · <span className="text-yellow-500 font-medium">Yellow = low</span> · <span className="text-red-500 font-medium">Red = high</span>
+        </p>
+
+        {/* Tooltip */}
+        <div className="relative">
+          <AnimatePresence>
+            {hoveredBP !== null && systolicHistory[hoveredBP] !== undefined && (
+              <motion.div
+                key={hoveredBP}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                className={`absolute -top-9 z-10 px-2.5 py-1.5 rounded-lg text-xs font-medium shadow-lg pointer-events-none
+                  ${systolicHistory[hoveredBP] > 140
+                    ? 'bg-red-500 text-white'
+                    : systolicHistory[hoveredBP] < 90
+                    ? 'bg-yellow-400 text-yellow-900'
+                    : 'bg-green-500 text-white'}`}
+                style={{ left: `${(hoveredBP / (systolicHistory.length - 1)) * 88}%` }}
+              >
+                {systolicHistory[hoveredBP]} mmHg &nbsp;
+                {systolicHistory[hoveredBP] > 140 ? '⚠️ High' : systolicHistory[hoveredBP] < 90 ? '⚠️ Low' : '✓ Normal'}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="h-32 flex items-end gap-1">
+            {systolicHistory.map((value, index) => (
+              <motion.div
+                key={index}
+                initial={{ height: 0 }}
+                animate={{ height: `${Math.min((value / 200) * 100, 100)}%` }}
+                className={`flex-1 rounded-t-sm cursor-pointer transition-opacity
+                  ${value > 140 ? 'bg-red-500' : value < 90 ? 'bg-yellow-400' : 'bg-green-500'}
+                  ${hoveredBP !== null && hoveredBP !== index ? 'opacity-40' : 'opacity-100'}`}
+                onMouseEnter={() => setHoveredBP(index)}
+                onMouseLeave={() => setHoveredBP(null)}
+                onTouchStart={() => setHoveredBP(index)}
+                onTouchEnd={() => setHoveredBP(null)}
+              />
+            ))}
+          </div>
         </div>
-        <div className="flex justify-between text-xs text-slate-500 mt-2">
+
+        <div className={`flex justify-between text-xs mt-2 ${darkMode ? 'text-slate-300' : 'text-slate-500'}`}>
           <span>Earlier</span>
           <span>Now</span>
         </div>
       </Card>
 
-      {/* Heart Rate Trend Graph - Updated background */}
+      {/* Heart Rate Trend Graph */}
       <Card className={`${darkMode ? 'bg-gradient-to-br from-blue-900/40 to-purple-900/40 border-blue-800' : 'bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200'} border rounded-2xl p-4 shadow-sm mb-4`}>
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-1">
           <Heart className={`w-4 h-4 ${darkMode ? 'text-blue-300' : 'text-blue-500'}`} />
           <span className="text-sm font-medium">Heart Rate Trend</span>
         </div>
-        <div className="h-32 flex items-end gap-1">
-          {heartRateHistory.map((value, index) => (
-            <motion.div
-              key={index}
-              initial={{ height: 0 }}
-              animate={{ height: `${Math.min((value / 180) * 100, 100)}%` }}
-              className={`flex-1 ${value > 100 ? 'bg-red-500' : darkMode ? 'bg-blue-400' : 'bg-blue-500'} rounded-t-sm`}
-              title={`${value} bpm`}
-            />
-          ))}
+        <p className={`text-xs mb-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          Normal resting: 60–100 bpm · <span className="text-green-500 font-medium">Green = normal</span> · <span className="text-yellow-500 font-medium">Yellow = low</span> · <span className="text-red-500 font-medium">Red = high</span>
+        </p>
+
+        {/* Tooltip */}
+        <div className="relative">
+          <AnimatePresence>
+            {hoveredHR !== null && heartRateHistory[hoveredHR] !== undefined && (
+              <motion.div
+                key={hoveredHR}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                className={`absolute -top-9 z-10 px-2.5 py-1.5 rounded-lg text-xs font-medium shadow-lg pointer-events-none
+                  ${heartRateHistory[hoveredHR] > 100
+                    ? 'bg-red-500 text-white'
+                    : heartRateHistory[hoveredHR] < 60
+                    ? 'bg-yellow-400 text-yellow-900'
+                    : 'bg-green-500 text-white'}`}
+                style={{ left: `${(hoveredHR / (heartRateHistory.length - 1)) * 88}%` }}
+              >
+                {heartRateHistory[hoveredHR]} bpm &nbsp;
+                {heartRateHistory[hoveredHR] > 100 ? '⚠️ Elevated' : heartRateHistory[hoveredHR] < 60 ? '⚠️ Low' : '✓ Normal'}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="h-32 flex items-end gap-1">
+            {heartRateHistory.map((value, index) => (
+              <motion.div
+                key={index}
+                initial={{ height: 0 }}
+                animate={{ height: `${Math.min((value / 180) * 100, 100)}%` }}
+                className={`flex-1 rounded-t-sm cursor-pointer transition-opacity
+                  ${value > 100 ? 'bg-red-500' : value < 60 ? 'bg-yellow-400' : 'bg-green-500'}
+                  ${hoveredHR !== null && hoveredHR !== index ? 'opacity-40' : 'opacity-100'}`}
+                onMouseEnter={() => setHoveredHR(index)}
+                onMouseLeave={() => setHoveredHR(null)}
+                onTouchStart={() => setHoveredHR(index)}
+                onTouchEnd={() => setHoveredHR(null)}
+              />
+            ))}
+          </div>
         </div>
-        <div className="flex justify-between text-xs text-slate-500 mt-2">
+
+        <div className={`flex justify-between text-xs mt-2 ${darkMode ? 'text-slate-300' : 'text-slate-500'}`}>
           <span>Earlier</span>
           <span>Now</span>
         </div>
