@@ -60,6 +60,10 @@ export async function registerFirebaseSW(): Promise<string | null> {
 
     // 3. Request permission (if not yet granted) and fetch the FCM token.
     //    getToken will throw if permission is denied — caught below.
+    if (!messaging) {
+      console.warn('[swRegistration] Firebase Messaging not initialised — skipping token fetch.')
+      return null
+    }
     const token = await getToken(messaging, {
       vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY as string,
       serviceWorkerRegistration: registration,

@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getMessaging } from 'firebase/messaging'
+import { getMessaging, type Messaging } from 'firebase/messaging'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -11,4 +11,13 @@ const firebaseConfig = {
 }
 
 export const firebaseApp = initializeApp(firebaseConfig)
-export const messaging = getMessaging(firebaseApp)
+
+// getMessaging requires HTTPS + service worker support.
+// Guard so a missing env var or unsupported browser never crashes the app.
+let _messaging: Messaging | null = null
+try {
+  _messaging = getMessaging(firebaseApp)
+} catch (err) {
+  console.warn('[firebase] getMessaging failed — push notifications disabled:', err)
+}
+export const messaging: Messaging | null = _messaging

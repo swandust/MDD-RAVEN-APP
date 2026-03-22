@@ -53,7 +53,7 @@ function MainApp() {
   };
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-white'} transition-colors duration-300`}>
+    <div className={`min-h-screen ${darkMode ? 'dark bg-slate-900' : 'bg-white'} transition-colors duration-300`}>
       {/* Mobile App Container */}
       <div className="max-w-md mx-auto min-h-screen flex flex-col relative">
         {/* Main Content Area */}
