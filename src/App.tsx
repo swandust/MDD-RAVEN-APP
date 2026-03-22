@@ -9,7 +9,9 @@ import { SettingsView } from './components/SettingsView';
 import { LoginPage } from './components/LoginPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { BiodataOnboarding } from './components/BiodataOnboarding';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AlertProvider } from './context/AlertContext';
+import { AlertBanner } from './components/alerts/AlertBanner';
 
 // Main app component with tab navigation (only shown when authenticated)
 function MainApp() {
@@ -132,11 +134,33 @@ function NavButton({ icon, label, active, onClick, darkMode }: {
   );
 }
 
+// ── AlertAwareApp ──────────────────────────────────────────────────────────────
+// Guards AlertProvider so it only mounts after auth is resolved and a user is
+// signed in. While loading or unauthenticated, children are rendered as-is so
+// ProtectedRoute can redirect to /login without AlertProvider in the tree.
+
+function AlertAwareApp({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading || !user) return <>{children}</>;
+
+  return (
+    <AlertProvider
+      // TODO: replace with real session ID from active monitoring session
+      sessionId="session_4679"
+    >
+      <AlertBanner />
+      {children}
+    </AlertProvider>
+  );
+}
+
 // Root App component with routing
 function App() {
   return (
     <Router>
       <AuthProvider>
+        <AlertAwareApp>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
 
@@ -161,6 +185,7 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </AlertAwareApp>
       </AuthProvider>
     </Router>
   );

@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabase';
+import { registerAndStoreFcmToken, removeFcmToken } from '../services/fcmTokenService';
+import { registerFirebaseSW } from '../lib/swRegistration';
 
 export { supabase };
 
@@ -31,6 +33,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!isMounted) return;
       setUser(session?.user ?? null);
       setLoading(false);
+      if (session?.user) {
+        void registerAndStoreFcmToken();
+      }
     });
 
     return () => {
@@ -59,6 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { data, error: error ? { message: error.message } : null };
     },
     signOut: async () => {
+      const token = await registerFirebaseSW();
+      if (token) await removeFcmToken(token);
       await supabase.auth.signOut();
     },
   }), [user, loading]);
