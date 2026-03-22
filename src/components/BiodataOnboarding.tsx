@@ -1,5 +1,5 @@
 import { useState, useMemo, type ReactNode } from 'react';
-import { Activity, Eye, EyeOff, ChevronRight, CheckCircle2, Loader2 } from 'lucide-react';
+import { Activity, ChevronRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, supabase } from '../contexts/AuthContext';
