@@ -23,11 +23,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    supabase.auth.getUser().then(({ data }) => {
-      if (!isMounted) return;
-      setUser(data.user ?? null);
-      setLoading(false);
-    });
+    supabase.auth.getUser()
+      .then(({ data }) => {
+        if (!isMounted) return;
+        setUser(data.user ?? null);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setUser(null);
+        setLoading(false);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!isMounted) return;

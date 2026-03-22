@@ -4,6 +4,7 @@ import { Card } from './ui/card';
 import { Switch } from './ui/switch';
 import { useAuth, supabase } from '../contexts/AuthContext';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 interface SettingsViewProps {
   darkMode?: boolean;
@@ -26,6 +27,7 @@ interface UserSettings {
 
 export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeProp }: SettingsViewProps = {}) {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [localDarkMode, setLocalDarkMode] = useState(false);
   const darkMode = darkModeProp ?? localDarkMode;
   const setDarkMode = setDarkModeProp ?? setLocalDarkMode;
@@ -50,6 +52,9 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
   useEffect(() => {
     if (user) {
       fetchData();
+    } else {
+      // No user (e.g. demo mode) — stop spinner immediately
+      setLoading(false);
     }
   }, [user]);
 
@@ -97,26 +102,31 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
         });
       }
     } catch (error: any) {
-      toast.error('Error fetching settings: ' + error.message);
+      // Non-fatal — show defaults and let the user continue
+      console.warn('Settings fetch error:', error.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleUpdateProfile = async () => {
+    if (!user?.id) return;
     try {
       setSaving(true);
       const { error } = await supabase
         .from('profiles')
-        .update({
-          username: profile.username,
-          full_name: profile.full_name,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', user?.id);
+        .upsert(
+          {
+            id: user.id,
+            username: profile.username,
+            full_name: profile.full_name,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'id' }
+        );
 
       if (error) throw error;
-      toast.success('Profile updated successfully');
+      toast.success('Profile updated!');
       setIsEditingProfile(false);
     } catch (error: any) {
       toast.error('Error updating profile: ' + error.message);
@@ -126,28 +136,31 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
   };
 
   const handleUpdateSettings = async (updates: Partial<UserSettings>) => {
-    try {
-      const newSettings = { ...settings, ...updates };
-      setSettings(newSettings);
+    if (!user?.id) return; // no-op in demo mode or if user not loaded
 
+    const newSettings = { ...settings, ...updates };
+    setSettings(newSettings); // optimistic update
+
+    try {
       const { error } = await supabase
         .from('user_settings')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', user?.id);
+        .upsert(
+          { id: user.id, ...newSettings, updated_at: new Date().toISOString() },
+          { onConflict: 'id' }
+        );
 
       if (error) throw error;
     } catch (error: any) {
       toast.error('Error updating settings: ' + error.message);
-      // Revert local state on error
-      fetchData();
+      fetchData(); // revert on failure
     }
   };
 
   const handleSignOut = async () => {
     await signOut();
+    localStorage.removeItem('demoMode');
+    localStorage.removeItem('demoUser');
+    navigate('/login');
   };
 
   if (loading) {
@@ -194,7 +207,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
             </div>
             <div className="flex-1">
               <div className="text-lg font-semibold">{profile.full_name || profile.username || 'User'}</div>
-              <div className="text-sm text-slate-500">{user?.email}</div>
+              <div className={`text-sm ${darkMode ? 'text-slate-300' : 'text-slate-500'}`}>{user?.email}</div>
             </div>
             <button onClick={() => setIsEditingProfile(true)}>
               <ChevronRight className="w-5 h-5 text-slate-400" />
@@ -206,13 +219,13 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
               <h3 className="font-semibold">Edit Profile</h3>
               <button
                 onClick={() => setIsEditingProfile(false)}
-                className="text-sm text-slate-500"
+                className={`text-sm ${darkMode ? 'text-slate-300' : 'text-slate-500'}`}
               >
                 Cancel
               </button>
             </div>
             <div className="space-y-2">
-              <label className="text-xs text-slate-500 uppercase font-bold">Full Name</label>
+              <label className={`text-xs uppercase font-bold ${darkMode ? 'text-slate-300' : 'text-slate-500'}`}>Full Name</label>
               <input
                 type="text"
                 value={profile.full_name}
@@ -221,7 +234,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs text-slate-500 uppercase font-bold">Username</label>
+              <label className={`text-xs uppercase font-bold ${darkMode ? 'text-slate-300' : 'text-slate-500'}`}>Username</label>
               <input
                 type="text"
                 value={profile.username}
@@ -248,7 +261,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm">Sodium Goal (mg)</div>
-              <div className="text-xs text-slate-500">Target daily intake</div>
+              <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Target daily intake</div>
             </div>
             <input
               type="number"
@@ -260,7 +273,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm">Fluid Goal (ml)</div>
-              <div className="text-xs text-slate-500">Target daily intake</div>
+              <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Target daily intake</div>
             </div>
             <input
               type="number"
@@ -284,7 +297,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
             )}
             <div>
               <div className="text-sm">Dark Mode</div>
-              <div className="text-xs text-slate-500">Switch to {darkMode ? 'light' : 'dark'} theme</div>
+              <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Switch to {darkMode ? 'light' : 'dark'} theme</div>
             </div>
           </div>
           <Switch checked={darkMode} onCheckedChange={setDarkMode} />
@@ -300,7 +313,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
               <Bell className="w-5 h-5 text-slate-400" />
               <div>
                 <div className="text-sm">Vital Alerts</div>
-                <div className="text-xs text-slate-500">Get notified of abnormal readings</div>
+                <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Get notified of abnormal readings</div>
               </div>
             </div>
             <Switch
@@ -313,7 +326,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
               <Bell className="w-5 h-5 text-slate-400" />
               <div>
                 <div className="text-sm">Hydration Reminders</div>
-                <div className="text-xs text-slate-500">Drink water reminders</div>
+                <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Drink water reminders</div>
               </div>
             </div>
             <Switch
@@ -326,7 +339,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
               <Bell className="w-5 h-5 text-slate-400" />
               <div>
                 <div className="text-sm">Meal Tracking</div>
-                <div className="text-xs text-slate-500">Remind to log meals</div>
+                <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Remind to log meals</div>
               </div>
             </div>
             <Switch
@@ -361,7 +374,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
       </div>
 
       {/* App Version */}
-      <div className="text-center mt-8 text-xs text-slate-500">
+      <div className={`text-center mt-8 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
         POTS Health Monitor v1.0.0
       </div>
     </div>

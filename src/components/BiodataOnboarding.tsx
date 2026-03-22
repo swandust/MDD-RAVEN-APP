@@ -1,16 +1,10 @@
-import { useState, useMemo } from 'react';
-import {
-  User,
-  Ruler,
-  Info,
-  CheckCircle2,
-  Loader2,
-  Heart,
-} from 'lucide-react';
+import { useState, useMemo, type ReactNode } from 'react';
+import { Activity, Eye, EyeOff, ChevronRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, supabase } from '../contexts/AuthContext';
 
+// ── Types ───────────────────────────────────────────────────────────────────
 type SexOption = 'Female' | 'Male' | 'Intersex';
 type HeightUnit = 'cm' | 'ftin';
 type WeightUnit = 'kg' | 'lbs';
@@ -27,14 +21,7 @@ interface FormState {
   weightUnit: WeightUnit;
 }
 
-interface FormErrors {
-  fullName?: string;
-  dob?: string;
-  sex?: string;
-  height?: string;
-  weight?: string;
-}
-
+// ── Helpers ─────────────────────────────────────────────────────────────────
 function calculateAge(dob: string): number | null {
   if (!dob) return null;
   const birth = new Date(dob);
@@ -46,12 +33,7 @@ function calculateAge(dob: string): number | null {
   return age;
 }
 
-function getHeightInMeters(
-  unit: HeightUnit,
-  cm: string,
-  ft: string,
-  inches: string
-): number | null {
+function getHeightInMeters(unit: HeightUnit, cm: string, ft: string, inches: string): number | null {
   if (unit === 'cm') {
     const v = parseFloat(cm);
     return v > 0 ? v / 100 : null;
@@ -71,14 +53,21 @@ function calcBMI(heightM: number | null, weightKg: number | null): number | null
   return weightKg / (heightM * heightM);
 }
 
-function getBMICategory(bmi: number): { label: string; colorCls: string; bgCls: string } {
-  if (bmi < 18.5) return { label: 'Underweight', colorCls: 'text-cyan-600',   bgCls: 'bg-cyan-50' };
-  if (bmi < 25)   return { label: 'Healthy',     colorCls: 'text-emerald-600', bgCls: 'bg-emerald-50' };
-  if (bmi < 30)   return { label: 'Overweight',  colorCls: 'text-amber-600',   bgCls: 'bg-amber-50' };
-  return            { label: 'Obese',         colorCls: 'text-red-500',     bgCls: 'bg-red-50' };
+function getBMICategory(bmi: number): { label: string; color: string } {
+  if (bmi < 18.5) return { label: 'Underweight', color: '#06b6d4' };
+  if (bmi < 25)   return { label: 'Healthy',     color: '#10b981' };
+  if (bmi < 30)   return { label: 'Overweight',  color: '#f59e0b' };
+  return            { label: 'Obese',         color: '#ef4444' };
 }
 
-// ── Unit Toggle ────────────────────────────────────────────────────────────
+// ── Shared input style ───────────────────────────────────────────────────────
+const inputCls =
+  'w-full px-4 py-3.5 rounded-2xl text-sm text-slate-800 placeholder-slate-400 ' +
+  'bg-white border border-slate-200 shadow-sm ' +
+  'focus:outline-none focus:ring-2 focus:ring-teal-400/50 focus:border-teal-400 ' +
+  'transition-all duration-200';
+
+// ── Unit Toggle ──────────────────────────────────────────────────────────────
 function UnitToggle<T extends string>({
   options,
   value,
@@ -89,16 +78,16 @@ function UnitToggle<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div className="flex bg-blue-100 rounded-lg p-[3px] gap-[2px]">
+    <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
       {options.map(opt => (
         <button
           key={opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
-          className={`px-3 py-[5px] rounded-md text-xs font-semibold transition-all duration-150 ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 ${
             value === opt.value
-              ? 'bg-white text-blue-600 shadow-sm'
-              : 'text-blue-400 hover:text-blue-600'
+              ? 'bg-white text-teal-700 shadow-sm'
+              : 'text-slate-400 hover:text-slate-600'
           }`}
         >
           {opt.label}
@@ -108,30 +97,39 @@ function UnitToggle<T extends string>({
   );
 }
 
-// ── Field Error ────────────────────────────────────────────────────────────
-function FieldError({ message }: { message?: string }) {
-  if (!message) return null;
-  return <p className="mt-1.5 text-xs text-red-500">{message}</p>;
-}
-
-// ── Section Header ─────────────────────────────────────────────────────────
-function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
+// ── Step indicator ───────────────────────────────────────────────────────────
+function StepBar({ step, total }: { step: number; total: number }) {
+  const pct = Math.round((step / total) * 100);
   return (
-    <div className="flex items-center gap-2 mb-4">
-      <span className="text-blue-500">{icon}</span>
-      <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">{label}</span>
+    <div className="mb-6">
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-sm font-semibold text-slate-600">Step {step} of {total}</span>
+        <span className="text-sm font-semibold text-teal-600">{pct}%</span>
+      </div>
+      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{
+            width: `${pct}%`,
+            background: 'linear-gradient(90deg, #3b82f6 0%, #0d9488 100%)',
+          }}
+        />
+      </div>
     </div>
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────
+// ── Field label ──────────────────────────────────────────────────────────────
+function FieldLabel({ children }: { children: ReactNode }) {
+  return <label className="block text-sm font-medium text-slate-600 mb-1.5">{children}</label>;
+}
+
+// ── Main Component ───────────────────────────────────────────────────────────
 export function BiodataOnboarding() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
-  const [showTooltip, setShowTooltip] = useState(false);
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const [form, setForm] = useState<FormState>({
     fullName: '',
@@ -146,68 +144,30 @@ export function BiodataOnboarding() {
   });
 
   const age = useMemo(() => calculateAge(form.dob), [form.dob]);
-
   const heightM = useMemo(
     () => getHeightInMeters(form.heightUnit, form.heightCm, form.heightFt, form.heightIn),
     [form.heightUnit, form.heightCm, form.heightFt, form.heightIn]
   );
-  const weightKg = useMemo(
-    () => getWeightInKg(form.weightUnit, form.weightValue),
-    [form.weightUnit, form.weightValue]
-  );
+  const weightKg = useMemo(() => getWeightInKg(form.weightUnit, form.weightValue), [form.weightUnit, form.weightValue]);
   const bmi = useMemo(() => calcBMI(heightM, weightKg), [heightM, weightKg]);
+  const today = new Date().toISOString().split('T')[0];
 
-  const errors = useMemo<FormErrors>(() => {
-    const e: FormErrors = {};
+  // ── Step validation ────────────────────────────────────────────────────────
+  const step1Valid = form.fullName.trim().length >= 2 && !!form.dob && (age !== null && age >= 0 && age <= 120);
+  const step2Valid = !!form.sex && (heightM !== null) && (weightKg !== null);
 
-    if (!form.fullName.trim() || form.fullName.trim().length < 2)
-      e.fullName = 'Please enter your full name';
+  const canContinue = step === 1 ? step1Valid : step === 2 ? step2Valid : true;
 
-    if (!form.dob) {
-      e.dob = 'Please enter your date of birth';
-    } else if (age !== null && (age < 0 || age > 120)) {
-      e.dob = 'Please enter a valid date of birth';
-    }
-
-    if (!form.sex) e.sex = 'Please select an option';
-
-    if (form.heightUnit === 'cm') {
-      const cm = parseFloat(form.heightCm);
-      if (!form.heightCm || isNaN(cm) || cm < 50 || cm > 300)
-        e.height = 'Please enter a valid height (50–300 cm)';
-    } else {
-      const totalIn = (parseFloat(form.heightFt) || 0) * 12 + (parseFloat(form.heightIn) || 0);
-      if (totalIn <= 0) e.height = 'Please enter a valid height';
-    }
-
-    const w = parseFloat(form.weightValue);
-    if (!form.weightValue || isNaN(w) || w <= 0) e.weight = 'Please enter a valid weight';
-
-    return e;
-  }, [form, age]);
-
-  const isValid = Object.keys(errors).length === 0;
-
-  const shouldShowError = (field: keyof FormErrors) =>
-    (touched[field] || submitAttempted) && !!errors[field];
-
-  const blur = (field: string) => setTouched(t => ({ ...t, [field]: true }));
-
-  const inputCls = (field: keyof FormErrors) =>
-    [
-      'w-full px-4 py-3 rounded-2xl border bg-white text-slate-800 placeholder-slate-400',
-      'text-sm transition-all duration-150 outline-none',
-      shouldShowError(field)
-        ? 'border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-200'
-        : 'border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-200',
-    ].join(' ');
-
+  // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
-    setSubmitAttempted(true);
-    if (!isValid || !user) return;
+    if (!user?.id) {
+      // Demo mode — just skip to dashboard
+      localStorage.setItem('biodataComplete', 'true');
+      navigate('/dashboard');
+      return;
+    }
 
     setSaving(true);
-
     const { error } = await supabase
       .from('health_profile')
       .upsert({
@@ -228,274 +188,272 @@ export function BiodataOnboarding() {
     }
 
     localStorage.setItem('biodataComplete', 'true');
-    toast.success('Profile saved!', {
-      description: 'Welcome to RAVEN. Your experience is now personalized.',
-      duration: 3000,
-    });
-    setTimeout(() => navigate('/dashboard'), 1100);
+    toast.success('Profile saved!', { description: 'Welcome to RAVEN.', duration: 2000 });
+    setTimeout(() => navigate('/dashboard'), 900);
   };
 
-  const today = new Date().toISOString().split('T')[0];
+  const handleContinue = () => {
+    if (step < 3) setStep(s => s + 1);
+    else handleSave();
+  };
 
-  return (
-    <div className="min-h-screen bg-white">
-      <Toaster position="top-center" richColors />
+  // ── Render steps ──────────────────────────────────────────────────────────
+  const renderStep = () => {
+    switch (step) {
+      case 1:
+        return (
+          <>
+            <h2 className="text-xl font-bold text-slate-800 mb-1">Tell us about yourself</h2>
+            <p className="text-sm text-slate-500 mb-6">This helps us personalise your experience</p>
 
-      <div className="max-w-sm mx-auto p-5 pt-10 pb-24">
+            <div className="space-y-3">
+              {/* Full name */}
+              <div>
+                <FieldLabel>Full Name <span className="text-red-400">*</span></FieldLabel>
+                <input
+                  type="text"
+                  placeholder="e.g. Alex Rivera"
+                  value={form.fullName}
+                  onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))}
+                  className={inputCls}
+                />
+              </div>
 
-        {/* ── Header ── */}
-        <div className="mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center mb-5 shadow-md">
-            <Heart className="text-white w-7 h-7" fill="currentColor" />
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Let's set up your profile
-          </h1>
-          <p className="mt-1.5 text-sm text-slate-500 leading-relaxed">
-            This helps us personalize your POTS monitoring for your body.
-          </p>
-        </div>
-
-        {/* ── Section 1: About You ── */}
-        <div className="bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-5 shadow-sm mb-3">
-          <SectionHeader icon={<User className="w-4 h-4" strokeWidth={2} />} label="About You" />
-
-          {/* Full Name */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Full Name <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Alex Rivera"
-              value={form.fullName}
-              autoComplete="name"
-              onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))}
-              onBlur={() => blur('fullName')}
-              className={inputCls('fullName')}
-            />
-            <FieldError message={shouldShowError('fullName') ? errors.fullName : undefined} />
-          </div>
-
-          {/* Date of Birth */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Date of Birth <span className="text-red-400">*</span>
-            </label>
-            <div className="relative">
-              <input
-                type="date"
-                value={form.dob}
-                max={today}
-                onChange={e => setForm(f => ({ ...f, dob: e.target.value }))}
-                onBlur={() => blur('dob')}
-                className={`${inputCls('dob')} ${age !== null && age >= 0 && age <= 120 ? 'pr-20' : ''}`}
-              />
-              {age !== null && age >= 0 && age <= 120 && (
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-lg pointer-events-none">
-                  {age} yrs
-                </span>
-              )}
+              {/* Date of birth */}
+              <div>
+                <FieldLabel>Date of Birth <span className="text-red-400">*</span></FieldLabel>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={form.dob}
+                    max={today}
+                    onChange={e => setForm(f => ({ ...f, dob: e.target.value }))}
+                    className={`${inputCls} ${age !== null && age >= 0 ? 'pr-20' : ''}`}
+                  />
+                  {age !== null && age >= 0 && age <= 120 && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-lg pointer-events-none">
+                      {age} yrs
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-            <FieldError message={shouldShowError('dob') ? errors.dob : undefined} />
-          </div>
+          </>
+        );
 
-          {/* Biological Sex */}
-          <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <label className="text-sm font-medium text-slate-700">
-                Biological Sex <span className="text-red-400">*</span>
-              </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onMouseEnter={() => setShowTooltip(true)}
-                  onMouseLeave={() => setShowTooltip(false)}
-                  onFocus={() => setShowTooltip(true)}
-                  onBlur={() => setShowTooltip(false)}
-                  aria-label="Why we ask for biological sex"
-                  className="text-slate-400 hover:text-blue-500 transition-colors flex items-center"
-                >
-                  <Info className="w-3.5 h-3.5" />
-                </button>
-                {showTooltip && (
-                  <div
-                    role="tooltip"
-                    className="absolute left-6 top-1/2 -translate-y-1/2 z-30 w-60 bg-slate-800 text-white text-xs rounded-xl px-3.5 py-2.5 shadow-xl leading-relaxed"
-                  >
-                    Hormonal cycles can significantly affect POTS symptoms. This helps us personalize your insights.
-                    <span className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-slate-800" />
+      case 2:
+        return (
+          <>
+            <h2 className="text-xl font-bold text-slate-800 mb-1">Your body metrics</h2>
+            <p className="text-sm text-slate-500 mb-6">Used to calculate personalised health insights</p>
+
+            <div className="space-y-4">
+              {/* Height */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <FieldLabel>Height <span className="text-red-400">*</span></FieldLabel>
+                  <UnitToggle
+                    options={[{ value: 'cm' as HeightUnit, label: 'cm' }, { value: 'ftin' as HeightUnit, label: 'ft/in' }]}
+                    value={form.heightUnit}
+                    onChange={u => setForm(f => ({ ...f, heightUnit: u, heightCm: '', heightFt: '', heightIn: '' }))}
+                  />
+                </div>
+                {form.heightUnit === 'cm' ? (
+                  <div className="relative">
+                    <input
+                      type="number"
+                      placeholder="Height (cm)"
+                      min="50" max="300"
+                      value={form.heightCm}
+                      onChange={e => setForm(f => ({ ...f, heightCm: e.target.value }))}
+                      className={`${inputCls} pr-12`}
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium pointer-events-none">cm</span>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="number" placeholder="5" min="0" max="9"
+                        value={form.heightFt}
+                        onChange={e => setForm(f => ({ ...f, heightFt: e.target.value }))}
+                        className={`${inputCls} pr-9`}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">ft</span>
+                    </div>
+                    <div className="relative flex-1">
+                      <input
+                        type="number" placeholder="7" min="0" max="11"
+                        value={form.heightIn}
+                        onChange={e => setForm(f => ({ ...f, heightIn: e.target.value }))}
+                        className={`${inputCls} pr-9`}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">in</span>
+                    </div>
                   </div>
                 )}
               </div>
-            </div>
 
-            <div className="flex gap-2">
-              {(['Female', 'Male', 'Intersex'] as SexOption[]).map(opt => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => {
-                    setForm(f => ({ ...f, sex: opt }));
-                    setTouched(t => ({ ...t, sex: true }));
-                  }}
-                  className={`flex-1 py-3 rounded-2xl text-sm font-semibold border transition-all duration-150 ${
-                    form.sex === opt
-                      ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                      : shouldShowError('sex')
-                      ? 'bg-white text-slate-500 border-red-300'
-                      : 'bg-white text-slate-500 border-gray-200 hover:border-blue-400 hover:text-blue-500'
-                  }`}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-            <FieldError message={shouldShowError('sex') ? errors.sex : undefined} />
-          </div>
-        </div>
-
-        {/* ── Section 2: Body Metrics ── */}
-        <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-5 shadow-sm mb-4">
-          <SectionHeader icon={<Ruler className="w-4 h-4" strokeWidth={2} />} label="Body Metrics" />
-
-          {/* Height */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium text-slate-700">
-                Height <span className="text-red-400">*</span>
-              </label>
-              <UnitToggle
-                options={[
-                  { value: 'cm' as HeightUnit, label: 'cm' },
-                  { value: 'ftin' as HeightUnit, label: 'ft / in' },
-                ]}
-                value={form.heightUnit}
-                onChange={u => setForm(f => ({ ...f, heightUnit: u, heightCm: '', heightFt: '', heightIn: '' }))}
-              />
-            </div>
-
-            {form.heightUnit === 'cm' ? (
-              <div className="relative">
-                <input
-                  type="number"
-                  placeholder="e.g. 165"
-                  min="50"
-                  max="300"
-                  value={form.heightCm}
-                  onChange={e => setForm(f => ({ ...f, heightCm: e.target.value }))}
-                  onBlur={() => blur('height')}
-                  className={`${inputCls('height')} pr-12`}
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium pointer-events-none">cm</span>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="number" placeholder="5" min="0" max="9"
-                    value={form.heightFt}
-                    onChange={e => setForm(f => ({ ...f, heightFt: e.target.value }))}
-                    onBlur={() => blur('height')}
-                    className={`${inputCls('height')} pr-9`}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">ft</span>
-                </div>
-                <div className="relative flex-1">
-                  <input
-                    type="number" placeholder="7" min="0" max="11"
-                    value={form.heightIn}
-                    onChange={e => setForm(f => ({ ...f, heightIn: e.target.value }))}
-                    onBlur={() => blur('height')}
-                    className={`${inputCls('height')} pr-9`}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">in</span>
-                </div>
-              </div>
-            )}
-            <FieldError message={shouldShowError('height') ? errors.height : undefined} />
-          </div>
-
-          {/* Weight */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium text-slate-700">
-                Weight <span className="text-red-400">*</span>
-              </label>
-              <UnitToggle
-                options={[
-                  { value: 'kg' as WeightUnit, label: 'kg' },
-                  { value: 'lbs' as WeightUnit, label: 'lbs' },
-                ]}
-                value={form.weightUnit}
-                onChange={u => setForm(f => ({ ...f, weightUnit: u, weightValue: '' }))}
-              />
-            </div>
-            <div className="relative">
-              <input
-                type="number"
-                placeholder={form.weightUnit === 'kg' ? 'e.g. 62' : 'e.g. 137'}
-                min="0"
-                value={form.weightValue}
-                onChange={e => setForm(f => ({ ...f, weightValue: e.target.value }))}
-                onBlur={() => blur('weight')}
-                className={`${inputCls('weight')} pr-12`}
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium pointer-events-none">
-                {form.weightUnit}
-              </span>
-            </div>
-            <FieldError message={shouldShowError('weight') ? errors.weight : undefined} />
-          </div>
-
-          {/* BMI — read-only */}
-          <div className={`rounded-2xl border px-4 py-3 transition-all duration-300 ${
-            bmi !== null
-              ? 'bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200'
-              : 'bg-white border-dashed border-gray-200 opacity-60'
-          }`}>
-            <div className="flex items-center justify-between">
+              {/* Weight */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-0.5">BMI</p>
-                {bmi !== null ? (
-                  <p className="text-3xl font-bold text-slate-900 leading-none">{bmi.toFixed(1)}</p>
-                ) : (
-                  <p className="text-sm text-slate-400 italic">Fill height & weight</p>
-                )}
+                <div className="flex items-center justify-between mb-1.5">
+                  <FieldLabel>Weight <span className="text-red-400">*</span></FieldLabel>
+                  <UnitToggle
+                    options={[{ value: 'kg' as WeightUnit, label: 'kg' }, { value: 'lbs' as WeightUnit, label: 'lbs' }]}
+                    value={form.weightUnit}
+                    onChange={u => setForm(f => ({ ...f, weightUnit: u, weightValue: '' }))}
+                  />
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    placeholder={form.weightUnit === 'kg' ? 'Weight (kg)' : 'Weight (lbs)'}
+                    min="0"
+                    value={form.weightValue}
+                    onChange={e => setForm(f => ({ ...f, weightValue: e.target.value }))}
+                    className={`${inputCls} pr-12`}
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium pointer-events-none">
+                    {form.weightUnit}
+                  </span>
+                </div>
               </div>
-              {bmi !== null && (
-                <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${getBMICategory(bmi).colorCls} ${getBMICategory(bmi).bgCls}`}>
-                  {getBMICategory(bmi).label}
-                </span>
-              )}
+
+              {/* Biological Sex */}
+              <div>
+                <FieldLabel>Biological Sex <span className="text-red-400">*</span></FieldLabel>
+                <div className="flex gap-2">
+                  {(['Female', 'Male', 'Intersex'] as SexOption[]).map(opt => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, sex: opt }))}
+                      className={`flex-1 py-3 rounded-2xl text-sm font-semibold border transition-all duration-150 ${
+                        form.sex === opt
+                          ? 'text-white border-transparent shadow-sm'
+                          : 'bg-white text-slate-500 border-slate-200 hover:border-teal-400 hover:text-teal-600'
+                      }`}
+                      style={form.sex === opt ? { background: 'linear-gradient(135deg, #3b82f6 0%, #0d9488 100%)' } : {}}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
+          </>
+        );
+
+      case 3:
+        return (
+          <>
+            <h2 className="text-xl font-bold text-slate-800 mb-1">Almost done!</h2>
+            <p className="text-sm text-slate-500 mb-6">Here's a summary of your profile</p>
+
+            <div className="space-y-3">
+              {/* Summary rows */}
+              {[
+                { label: 'Name', value: form.fullName || '—' },
+                { label: 'Age', value: age !== null ? `${age} years` : '—' },
+                { label: 'Biological Sex', value: form.sex || '—' },
+                {
+                  label: 'Height',
+                  value: heightM
+                    ? form.heightUnit === 'cm'
+                      ? `${form.heightCm} cm`
+                      : `${form.heightFt}ft ${form.heightIn || 0}in`
+                    : '—',
+                },
+                {
+                  label: 'Weight',
+                  value: weightKg ? `${weightKg.toFixed(1)} kg` : '—',
+                },
+              ].map(({ label, value }) => (
+                <div
+                  key={label}
+                  className="flex justify-between items-center py-3 px-4 bg-white rounded-2xl border border-slate-100 shadow-sm"
+                >
+                  <span className="text-sm text-slate-500">{label}</span>
+                  <span className="text-sm font-semibold text-slate-800">{value}</span>
+                </div>
+              ))}
+
+              {/* BMI card */}
+              {bmi !== null && (() => {
+                const cat = getBMICategory(bmi);
+                return (
+                  <div className="flex justify-between items-center py-3 px-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                    <span className="text-sm text-slate-500">BMI</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-800">{bmi.toFixed(1)}</span>
+                      <span
+                        className="text-xs font-bold px-2 py-0.5 rounded-full text-white"
+                        style={{ background: cat.color }}
+                      >
+                        {cat.label}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </>
+        );
+    }
+  };
+
+  return (
+    <div
+      className="min-h-screen w-full flex flex-col items-center px-5 py-10"
+      style={{
+        background: 'linear-gradient(160deg, #f0f9ff 0%, #e6fffa 50%, #f0fdfa 100%)',
+        paddingBottom: 'max(2.5rem, env(safe-area-inset-bottom, 0px))',
+      }}
+    >
+      <Toaster position="top-center" richColors />
+
+      <div className="w-full max-w-md">
+
+        {/* Header */}
+        <div className="flex flex-col items-center mb-8">
+          <div
+            className="w-20 h-20 rounded-[22px] flex items-center justify-center mb-4 shadow-lg"
+            style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #0d9488 100%)' }}
+          >
+            <Activity className="text-white w-10 h-10" strokeWidth={2} />
           </div>
+          <h1 className="text-2xl font-bold" style={{ color: '#0d7e70' }}>Welcome to RAVEN</h1>
+          <p className="text-sm text-slate-500 mt-1">Let's set up your profile</p>
         </div>
 
-        {/* ── Save Button ── */}
+        {/* Card */}
+        <div className="bg-white rounded-3xl shadow-lg shadow-teal-100/60 p-6 mb-4 border border-slate-100">
+          <StepBar step={step} total={3} />
+          {renderStep()}
+        </div>
+
+        {/* Continue / Save button */}
         <button
           type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className={`w-full py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 shadow-sm ${
-            isValid && !saving
-              ? 'bg-blue-500 text-white hover:bg-blue-600 active:scale-[0.98]'
-              : !isValid
-              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              : 'bg-blue-300 text-white cursor-not-allowed'
-          }`}
+          onClick={handleContinue}
+          disabled={!canContinue || saving}
+          className="w-full py-3.5 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-md mb-3"
+          style={{ background: canContinue ? 'linear-gradient(135deg, #3b82f6 0%, #0d9488 100%)' : undefined, backgroundColor: canContinue ? undefined : '#cbd5e1' }}
         >
           {saving ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : step < 3 ? (
+            <>Continue <ChevronRight className="w-4 h-4" /></>
           ) : (
             <><CheckCircle2 className="w-4 h-4" /> Save Profile</>
           )}
         </button>
 
+        {/* Skip */}
         <button
           type="button"
           onClick={() => navigate('/dashboard')}
-          className="w-full py-3 mt-1 text-sm text-slate-400 hover:text-blue-500 transition-colors"
+          className="w-full py-3 text-sm text-slate-400 hover:text-teal-600 transition-colors font-medium"
         >
           Skip for now
         </button>
