@@ -108,7 +108,7 @@ export function HydrationTracker({ darkMode, esp32Ip }: HydrationTrackerProps) {
     if (!esp32Ip) { alert('No ESP32 IP configured.'); return; }
     setTaring(true);
     try {
-      const response = await fetch(`http://${esp32Ip}/tare`, { method: 'POST' });
+      const response = await fetch(`/api/esp32/tare?ip=${encodeURIComponent(esp32Ip)}`, { method: 'POST' });
       if (!response.ok) throw new Error('Tare failed');
       // Optionally fetch the new weight after a short delay
       setTimeout(fetchCurrentWeight, 500);
@@ -129,7 +129,7 @@ export function HydrationTracker({ darkMode, esp32Ip }: HydrationTrackerProps) {
     if (!esp32Ip) { alert('No ESP32 IP configured.'); return; }
     setRefilling(true);
     try {
-      const response = await fetch(`http://${esp32Ip}/refill`, {
+      const response = await fetch(`/api/esp32/refill?ip=${encodeURIComponent(esp32Ip)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount })
