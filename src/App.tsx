@@ -17,11 +17,18 @@ import { AlertBanner } from './components/alerts/AlertBanner';
 function MainApp() {
   const [activeTab, setActiveTab] = useState('home');
   const [darkMode, setDarkMode] = useState(false);
+  const [esp32Ip, setEsp32Ip] = useState<string>('');  // <-- NEW: state for ESP32 IP
+
   // Load dark mode preference from localStorage on initial load
   useEffect(() => {
     const savedDarkMode = localStorage.getItem('darkMode');
     if (savedDarkMode !== null) {
       setDarkMode(savedDarkMode === 'true');
+    }
+    // Load ESP32 IP from localStorage
+    const savedIp = localStorage.getItem('esp32Ip');
+    if (savedIp) {
+      setEsp32Ip(savedIp);
     }
   }, []);
 
@@ -37,7 +44,8 @@ function MainApp() {
       case 'nutrition':
         return <NutritionSection darkMode={darkMode} />;
       case 'fluids':
-        return <HydrationTracker darkMode={darkMode} />;
+        // Pass the esp32Ip prop to HydrationTracker
+        return <HydrationTracker darkMode={darkMode} esp32Ip={esp32Ip} />;
       case 'trends':
         return <TrendsView darkMode={darkMode} />;
       case 'settings':
@@ -45,6 +53,8 @@ function MainApp() {
           <SettingsView 
             darkMode={darkMode} 
             setDarkMode={setDarkMode} 
+            esp32Ip={esp32Ip}           // <-- pass down so SettingsView can edit it
+            setEsp32Ip={setEsp32Ip}     // <-- pass setter to update state
           />
         );
       default:
@@ -61,7 +71,7 @@ function MainApp() {
           {renderActiveTab()}
         </div>
 
-        {/* Bottom Navigation Bar */}
+        {/* Bottom Navigation Bar (unchanged) */}
         <nav className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto ${
           darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
         } border-t shadow-lg transition-colors duration-300`}>
@@ -134,11 +144,7 @@ function NavButton({ icon, label, active, onClick, darkMode }: {
   );
 }
 
-// ── AlertAwareApp ──────────────────────────────────────────────────────────────
-// Guards AlertProvider so it only mounts after auth is resolved and a user is
-// signed in. While loading or unauthenticated, children are rendered as-is so
-// ProtectedRoute can redirect to /login without AlertProvider in the tree.
-
+// AlertAwareApp (unchanged) ...
 function AlertAwareApp({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
 
@@ -146,7 +152,6 @@ function AlertAwareApp({ children }: { children: ReactNode }) {
 
   return (
     <AlertProvider
-      // TODO: replace with real session ID from active monitoring session
       sessionId="session_4679"
     >
       <AlertBanner />
@@ -163,7 +168,6 @@ function App() {
         <AlertAwareApp>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-
           <Route
             path="/onboarding"
             element={
@@ -172,7 +176,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-
           <Route
             path="/dashboard/*"
             element={
@@ -181,7 +184,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

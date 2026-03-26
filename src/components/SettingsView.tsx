@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Moon, Sun, Bell, User, Shield, HelpCircle, ChevronRight, LogOut, Loader2, Save } from 'lucide-react';
+import { Moon, Sun, Bell, User, Shield, HelpCircle, ChevronRight, LogOut, Loader2, Save, Wifi } from 'lucide-react';
 import { Card } from './ui/card';
 import { Switch } from './ui/switch';
 import { useAuth, supabase } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { Button } from './ui/button';
 
 interface SettingsViewProps {
   darkMode?: boolean;
   setDarkMode?: (value: boolean) => void;
+  esp32Ip?: string;           // New prop for ESP32 IP
+  setEsp32Ip?: (ip: string) => void; // New setter
 }
 
 interface Profile {
@@ -25,12 +28,22 @@ interface UserSettings {
   meal_tracking_reminders: boolean;
 }
 
-export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeProp }: SettingsViewProps = {}) {
+export function SettingsView({
+  darkMode: darkModeProp,
+  setDarkMode: setDarkModeProp,
+  esp32Ip: esp32IpProp,
+  setEsp32Ip: setEsp32IpProp
+}: SettingsViewProps = {}) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [localDarkMode, setLocalDarkMode] = useState(false);
+  const [localEsp32Ip, setLocalEsp32Ip] = useState('');
+
   const darkMode = darkModeProp ?? localDarkMode;
   const setDarkMode = setDarkModeProp ?? setLocalDarkMode;
+
+  const esp32Ip = esp32IpProp ?? localEsp32Ip;
+  const setEsp32Ip = setEsp32IpProp ?? setLocalEsp32Ip;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -49,11 +62,24 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
 
+  // Load IP from localStorage on mount if no prop provided
+  useEffect(() => {
+    if (esp32IpProp === undefined) {
+      const savedIp = localStorage.getItem('esp32Ip');
+      if (savedIp) setLocalEsp32Ip(savedIp);
+    }
+  }, []);
+
+  // Save IP to localStorage whenever it changes
+  useEffect(() => {
+    if (esp32Ip) localStorage.setItem('esp32Ip', esp32Ip);
+    else localStorage.removeItem('esp32Ip');
+  }, [esp32Ip]);
+
   useEffect(() => {
     if (user) {
       fetchData();
     } else {
-      // No user (e.g. demo mode) — stop spinner immediately
       setLoading(false);
     }
   }, [user]);
@@ -62,17 +88,13 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
     try {
       setLoading(true);
 
-      // Fetch profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('username, full_name, avatar_url')
         .eq('id', user?.id)
         .single();
 
-      if (profileError && profileError.code !== 'PGRST116') {
-        throw profileError;
-      }
-
+      if (profileError && profileError.code !== 'PGRST116') throw profileError;
       if (profileData) {
         setProfile({
           username: profileData.username || '',
@@ -81,17 +103,13 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
         });
       }
 
-      // Fetch settings
       const { data: settingsData, error: settingsError } = await supabase
         .from('user_settings')
         .select('sodium_goal, fluid_goal, vital_alerts, hydration_reminders, meal_tracking_reminders')
         .eq('id', user?.id)
         .single();
 
-      if (settingsError && settingsError.code !== 'PGRST116') {
-        throw settingsError;
-      }
-
+      if (settingsError && settingsError.code !== 'PGRST116') throw settingsError;
       if (settingsData) {
         setSettings({
           sodium_goal: settingsData.sodium_goal,
@@ -102,7 +120,6 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
         });
       }
     } catch (error: any) {
-      // Non-fatal — show defaults and let the user continue
       console.warn('Settings fetch error:', error.message);
     } finally {
       setLoading(false);
@@ -136,10 +153,10 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
   };
 
   const handleUpdateSettings = async (updates: Partial<UserSettings>) => {
-    if (!user?.id) return; // no-op in demo mode or if user not loaded
+    if (!user?.id) return;
 
     const newSettings = { ...settings, ...updates };
-    setSettings(newSettings); // optimistic update
+    setSettings(newSettings);
 
     try {
       const { error } = await supabase
@@ -285,7 +302,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
         </div>
       </Card>
 
-      {/* Appearance */}
+      {/* Appearance Card */}
       <Card className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl p-4 shadow-sm mb-4`}>
         <h3 className="text-lg mb-4 font-semibold">Appearance</h3>
         <div className="flex items-center justify-between">
@@ -304,7 +321,54 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
         </div>
       </Card>
 
-      {/* Notifications */}
+      {/* ESP32 IP Address Card */}
+      <Card className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl p-4 shadow-sm mb-4`}>
+        <div className="flex items-center gap-3 mb-3">
+          <Wifi className="w-5 h-5 text-slate-400" />
+          <div>
+            <div className="text-sm">ESP32 IP Address</div>
+            <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              IP of your load cell device (find it in serial monitor)
+            </div>
+          </div>
+        </div>
+        <input
+          type="text"
+          value={esp32Ip}
+          onChange={(e) => setEsp32Ip(e.target.value)}
+          placeholder="e.g., 192.168.1.100"
+          className={`w-full p-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+        />
+      </Card>
+
+      {/* Pair Device Card */}
+      <Card className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl p-4 shadow-sm mb-4`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm">Pair Device</div>
+            <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              Link all new data to your account
+            </div>
+          </div>
+          <Button
+            onClick={async () => {
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) throw new Error('Not logged in');
+                await supabase.rpc('set_active_user', { user_id: user.id });
+                toast.success('Device paired! All new data will be linked to you.');
+              } catch (err: any) {
+                toast.error('Failed to pair device: ' + err.message);
+              }
+            }}
+            className="rounded-xl"
+          >
+            Pair
+          </Button>
+        </div>
+      </Card>
+
+      {/* Notifications Card */}
       <Card className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl p-4 shadow-sm mb-4`}>
         <h3 className="text-lg mb-4 font-semibold">Notifications</h3>
         <div className="space-y-4">
@@ -350,7 +414,7 @@ export function SettingsView({ darkMode: darkModeProp, setDarkMode: setDarkModeP
         </div>
       </Card>
 
-      {/* Other Settings */}
+      {/* Other Settings (disabled) */}
       <div className="space-y-3">
         <Card className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl p-4 shadow-sm cursor-not-allowed opacity-70`}>
           <div className="flex items-center justify-between">
