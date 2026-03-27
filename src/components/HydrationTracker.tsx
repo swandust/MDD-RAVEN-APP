@@ -108,7 +108,10 @@ export function HydrationTracker({ darkMode, esp32Url }: HydrationTrackerProps) 
     if (!esp32Url) { alert('No ESP32 URL configured.'); return; }
     setTaring(true);
     try {
-      const response = await fetch(`${esp32Url}/tare`, { method: 'POST' });
+      const response = await fetch(`${esp32Url}/tare`, {
+        method: 'POST',
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
       if (!response.ok) throw new Error('Tare failed');
       // Optionally fetch the new weight after a short delay
       setTimeout(fetchCurrentWeight, 500);
@@ -131,7 +134,7 @@ export function HydrationTracker({ darkMode, esp32Url }: HydrationTrackerProps) 
     try {
       const response = await fetch(`${esp32Url}/refill`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
         body: JSON.stringify({ amount })
       });
       if (!response.ok) throw new Error('Manual refill failed');
