@@ -10,8 +10,8 @@ import { Button } from './ui/button';
 interface SettingsViewProps {
   darkMode?: boolean;
   setDarkMode?: (value: boolean) => void;
-  esp32Ip?: string;           // New prop for ESP32 IP
-  setEsp32Ip?: (ip: string) => void; // New setter
+  esp32Url?: string;
+  setEsp32Url?: (url: string) => void;
 }
 
 interface Profile {
@@ -31,19 +31,19 @@ interface UserSettings {
 export function SettingsView({
   darkMode: darkModeProp,
   setDarkMode: setDarkModeProp,
-  esp32Ip: esp32IpProp,
-  setEsp32Ip: setEsp32IpProp
+  esp32Url: esp32UrlProp,
+  setEsp32Url: setEsp32UrlProp
 }: SettingsViewProps = {}) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [localDarkMode, setLocalDarkMode] = useState(false);
-  const [localEsp32Ip, setLocalEsp32Ip] = useState('');
+  const [localEsp32Url, setLocalEsp32Url] = useState('');
 
   const darkMode = darkModeProp ?? localDarkMode;
   const setDarkMode = setDarkModeProp ?? setLocalDarkMode;
 
-  const esp32Ip = esp32IpProp ?? localEsp32Ip;
-  const setEsp32Ip = setEsp32IpProp ?? setLocalEsp32Ip;
+  const esp32Url = esp32UrlProp ?? localEsp32Url;
+  const setEsp32Url = setEsp32UrlProp ?? setLocalEsp32Url;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -62,19 +62,19 @@ export function SettingsView({
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
 
-  // Load IP from localStorage on mount if no prop provided
+  // Load URL from localStorage on mount if no prop provided
   useEffect(() => {
-    if (esp32IpProp === undefined) {
-      const savedIp = localStorage.getItem('esp32Ip');
-      if (savedIp) setLocalEsp32Ip(savedIp);
+    if (esp32UrlProp === undefined) {
+      const savedUrl = localStorage.getItem('esp32Url');
+      if (savedUrl) setLocalEsp32Url(savedUrl);
     }
-  }, []);
+  }, [esp32UrlProp]);
 
-  // Save IP to localStorage whenever it changes
+  // Save URL to localStorage whenever it changes
   useEffect(() => {
-    if (esp32Ip) localStorage.setItem('esp32Ip', esp32Ip);
-    else localStorage.removeItem('esp32Ip');
-  }, [esp32Ip]);
+    if (esp32Url) localStorage.setItem('esp32Url', esp32Url);
+    else localStorage.removeItem('esp32Url');
+  }, [esp32Url]);
 
   useEffect(() => {
     if (user) {
@@ -321,22 +321,22 @@ export function SettingsView({
         </div>
       </Card>
 
-      {/* ESP32 IP Address Card */}
+      {/* ESP32 URL Card */}
       <Card className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border rounded-2xl p-4 shadow-sm mb-4`}>
         <div className="flex items-center gap-3 mb-3">
           <Wifi className="w-5 h-5 text-slate-400" />
           <div>
-            <div className="text-sm">ESP32 IP Address</div>
+            <div className="text-sm">ESP32 URL</div>
             <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-              IP of your load cell device (find it in serial monitor)
+              Local IP or ngrok tunnel URL for your load cell device
             </div>
           </div>
         </div>
         <input
           type="text"
-          value={esp32Ip}
-          onChange={(e) => setEsp32Ip(e.target.value)}
-          placeholder="e.g., 192.168.1.100"
+          value={esp32Url}
+          onChange={(e) => setEsp32Url(e.target.value)}
+          placeholder="e.g., http://192.168.1.100 or https://xyz.ngrok-free.app"
           className={`w-full p-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
         />
       </Card>

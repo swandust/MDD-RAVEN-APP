@@ -17,7 +17,7 @@ import { AlertBanner } from './components/alerts/AlertBanner';
 function MainApp() {
   const [activeTab, setActiveTab] = useState('home');
   const [darkMode, setDarkMode] = useState(false);
-  const [esp32Ip, setEsp32Ip] = useState<string>('');  // <-- NEW: state for ESP32 IP
+  const [esp32Url, setEsp32Url] = useState<string>('');
 
   // Load dark mode preference from localStorage on initial load
   useEffect(() => {
@@ -25,10 +25,10 @@ function MainApp() {
     if (savedDarkMode !== null) {
       setDarkMode(savedDarkMode === 'true');
     }
-    // Load ESP32 IP from localStorage
-    const savedIp = localStorage.getItem('esp32Ip');
-    if (savedIp) {
-      setEsp32Ip(savedIp);
+    // Load ESP32 URL from localStorage
+    const savedUrl = localStorage.getItem('esp32Url');
+    if (savedUrl) {
+      setEsp32Url(savedUrl);
     }
   }, []);
 
@@ -45,16 +45,16 @@ function MainApp() {
         return <NutritionSection darkMode={darkMode} />;
       case 'fluids':
         // Pass the esp32Ip prop to HydrationTracker
-        return <HydrationTracker darkMode={darkMode} esp32Ip={esp32Ip} />;
+        return <HydrationTracker darkMode={darkMode} esp32Url={esp32Url} />;
       case 'trends':
         return <TrendsView darkMode={darkMode} />;
       case 'settings':
         return (
-          <SettingsView 
-            darkMode={darkMode} 
-            setDarkMode={setDarkMode} 
-            esp32Ip={esp32Ip}           // <-- pass down so SettingsView can edit it
-            setEsp32Ip={setEsp32Ip}     // <-- pass setter to update state
+          <SettingsView
+            darkMode={darkMode}
+            setDarkMode={setDarkMode}
+            esp32Url={esp32Url}
+            setEsp32Url={setEsp32Url}
           />
         );
       default:

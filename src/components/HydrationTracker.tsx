@@ -18,10 +18,10 @@ interface FluidEvent {
 
 interface HydrationTrackerProps {
   darkMode: boolean;
-  esp32Ip?: string; // e.g., "192.168.1.100"
+  esp32Url?: string; // e.g., "http://192.168.1.100" or "https://xyz.ngrok-free.app"
 }
 
-export function HydrationTracker({ darkMode, esp32Ip }: HydrationTrackerProps) {
+export function HydrationTracker({ darkMode, esp32Url }: HydrationTrackerProps) {
   const [fluidEvents, setFluidEvents] = useState<FluidEvent[]>([]);
   const [currentWeight, setCurrentWeight] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,10 +105,10 @@ export function HydrationTracker({ darkMode, esp32Ip }: HydrationTrackerProps) {
 
   // ---------- ESP32 Interaction ----------
   const handleTare = async () => {
-    if (!esp32Ip) { alert('No ESP32 IP configured.'); return; }
+    if (!esp32Url) { alert('No ESP32 URL configured.'); return; }
     setTaring(true);
     try {
-      const response = await fetch(`/api/esp32/tare?ip=${encodeURIComponent(esp32Ip)}`, { method: 'POST' });
+      const response = await fetch(`${esp32Url}/tare`, { method: 'POST' });
       if (!response.ok) throw new Error('Tare failed');
       // Optionally fetch the new weight after a short delay
       setTimeout(fetchCurrentWeight, 500);
@@ -126,10 +126,10 @@ export function HydrationTracker({ darkMode, esp32Ip }: HydrationTrackerProps) {
       alert('Please enter a valid amount in liters');
       return;
     }
-    if (!esp32Ip) { alert('No ESP32 IP configured.'); return; }
+    if (!esp32Url) { alert('No ESP32 URL configured.'); return; }
     setRefilling(true);
     try {
-      const response = await fetch(`/api/esp32/refill?ip=${encodeURIComponent(esp32Ip)}`, {
+      const response = await fetch(`${esp32Url}/refill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount })
