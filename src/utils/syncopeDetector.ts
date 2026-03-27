@@ -21,8 +21,8 @@ interface Alert {
 }
 
 // Alert thresholds
-const HR_WARNING_THRESHOLD = 20;  // bpm
-const HR_CRITICAL_THRESHOLD = 30; // bpm
+const HR_WARNING_THRESHOLD = 30;  // bpm
+const HR_CRITICAL_THRESHOLD = 40; // bpm
 const MAP_WARNING_THRESHOLD = -5; // mmHg
 const MAP_CRITICAL_PERCENT = 0.10; // 10%
 
@@ -173,10 +173,11 @@ export class SyncopeDetector {
   ): Alert {
     let message: string;
 
-    if (alertType.startsWith('hr')) {
-      message = `Heart rate increased by ${deltaHR} bpm in the last 10 minutes (from ${baselineHR} to ${hr} bpm)`;
+    const hrDelta = deltaHR ?? (hr - baselineHR);
+    if (severity === 'critical') {
+      message = `Your heart rate jumped from ${baselineHR} to ${hr} bpm (+${hrDelta}). Sit or lie down immediately - high fainting risk!`;
     } else {
-      message = `Blood pressure dropped by ${Math.abs(deltaMAP!).toFixed(1)} mmHg (MAP: ${baselineMAP.toFixed(1)} → ${mapValue.toFixed(1)} mmHg)`;
+      message = `Your heart rate increased from ${baselineHR} to ${hr} bpm (+${hrDelta}). Sit down if you feel dizzy, lightheaded, or unwell.`;
     }
 
     const autoDismissAt = new Date(Date.now() + AUTO_DISMISS_MINUTES * 60 * 1000);

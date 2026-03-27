@@ -47,7 +47,6 @@ import type {
 
 const BUFFER_WINDOW_MS = 10 * 60 * 1000;       // 10-minute rolling buffer
 const BASELINE_NEAR_EDGE_MS = 5 * 60 * 1000;   // readings older than this form the baseline
-const TREND_WINDOW_MS = 2 * 60 * 1000;          // slope computed over last 2 minutes
 const CURRENT_SAMPLE_COUNT = 3;                 // smooth current value over last N readings
 const MIN_BASELINE_READINGS = 5;               // minimum readings needed in baseline window
 const DEBOUNCE_MS = 60 * 1000;                 // suppress identical alert re-emission for 60 s
@@ -78,50 +77,36 @@ function median(values: number[]): number {
  * Ordinary least-squares slope via linear regression.
  * Returns the slope in (y-units per minute).
  */
-function slopePerMin(points: Array<{ x: number; y: number }>): number {
-  const n = points.length;
-  if (n < 2) return 0;
-  const sumX = points.reduce((a, p) => a + p.x, 0);
-  const sumY = points.reduce((a, p) => a + p.y, 0);
-  const sumXY = points.reduce((a, p) => a + p.x * p.y, 0);
-  const sumX2 = points.reduce((a, p) => a + p.x * p.x, 0);
-  const denom = n * sumX2 - sumX * sumX;
-  if (denom === 0) return 0;
-  const slopePerMs = (n * sumXY - sumX * sumY) / denom;
-  return slopePerMs * 60_000; // ms → minute
-}
-
 export function buildThresholds(
   constants: ReturnType<typeof deriveProfileConstants>,
   baselineHR: number,
-  baselineSBP: number,
+  baselineMAP: number,
 ): AlertThresholds {
-  const { critHRDelta, warnHRDelta, critSBPDrop, warnSBPDrop } = constants;
+  const { warnHRDelta, critHRDelta, warnMAPDrop, critMAPDropPct } = constants;
   return {
     warnHRDelta,
     critHRDelta,
-    warnHRAbsolute: Math.max(95, Math.max(100, Math.min(120, baselineHR + critHRDelta)) - 10),
-    critHRAbsolute: Math.max(100, Math.min(120, baselineHR + critHRDelta)),
+    warnHRAbsolute: baselineHR + warnHRDelta,
+    critHRAbsolute: baselineHR + critHRDelta,
     hrTrendWarn: 5,
     hrTrendCrit: 10,
-    warnSBPDrop,
-    critSBPDrop,
-    warnSBPAbsolute: Math.max(90, baselineSBP - warnSBPDrop),
-    critSBPAbsolute: Math.max(80, baselineSBP - critSBPDrop - 5),
+    warnSBPDrop: warnMAPDrop,
+    critSBPDrop: Math.round(baselineMAP * critMAPDropPct),
+    warnSBPAbsolute: 0,
+    critSBPAbsolute: 0,
     sbpTrendWarn: 5,
     sbpTrendCrit: 10,
   };
 }
 
 /** Pure profile-derived scalars — stable as long as PatientProfile is unchanged. */
-export function deriveProfileConstants(profile: PatientProfile) {
-  const { age } = profile;
-  const ageFactor = age > 60 ? 0.75 : age < 20 ? 1.1 : 1.0;
-  const critHRDelta = age < 19 ? 40 : 30;
-  const warnHRDelta = Math.max(20, critHRDelta - 10);
-  const critSBPDrop = Math.round(20 * ageFactor);
-  const warnSBPDrop = Math.round(10 * ageFactor);
-  return { ageFactor, critHRDelta, warnHRDelta, critSBPDrop, warnSBPDrop };
+export function deriveProfileConstants(_profile: PatientProfile) {
+  return {
+    warnHRDelta: 30,
+    critHRDelta: 40,
+    warnMAPDrop: 5,
+    critMAPDropPct: 0.10,
+  };
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -218,26 +203,20 @@ export function usePotsAlerts(sessionId: string): {
       if (baselineReadings.length < MIN_BASELINE_READINGS) return;
 
       const baselineHR = median(baselineReadings.map((r) => r.heartRate));
-      const baselineSBP = median(baselineReadings.map((r) => r.systolicBP));
+      const baselineMAP = median(baselineReadings.map((r) => r.diastolicBP + (r.systolicBP - r.diastolicBP) / 3));
 
       // Current value: median of last N readings (sensor noise smoothing)
       const currentSample = recentReadings.slice(-CURRENT_SAMPLE_COUNT);
       if (currentSample.length === 0) return;
       const currentHR = median(currentSample.map((r) => r.heartRate));
-      const currentSBP = median(currentSample.map((r) => r.systolicBP));
+      const currentMAP = median(currentSample.map((r) => r.diastolicBP + (r.systolicBP - r.diastolicBP) / 3));
 
       if (!profileConstants) return;
-      const computed = buildThresholds(profileConstants, baselineHR, baselineSBP);
+      const computed = buildThresholds(profileConstants, baselineHR, baselineMAP);
 
       const deltaHR = currentHR - baselineHR;
-      const deltaSBP = baselineSBP - currentSBP; // positive = drop
-
-      // Trend: linear regression slope over the last 2 minutes
-      const trendWindow = buffer.filter((r) => now - r.timestamp <= TREND_WINDOW_MS);
-      const hrTrend = slopePerMin(trendWindow.map((r) => ({ x: r.timestamp, y: r.heartRate })));
-      const sbpTrend = slopePerMin(trendWindow.map((r) => ({ x: r.timestamp, y: r.systolicBP })));
-      // SBP trend: negative slope = falling pressure; we report as positive rate-of-fall
-      const sbpFallRate = -sbpTrend;
+      const deltaMAP = baselineMAP - currentMAP; // positive = drop
+      const mapDropPct = baselineMAP > 0 ? deltaMAP / baselineMAP : 0;
 
       // ── Build TriggeredBy list ──────────────────────────────────────────────
       const triggered: TriggeredBy[] = [];
@@ -245,20 +224,8 @@ export function usePotsAlerts(sessionId: string): {
       if (deltaHR >= computed.critHRDelta) triggered.push('hr_delta');
       else if (deltaHR >= computed.warnHRDelta) triggered.push('hr_delta');
 
-      if (currentHR >= computed.critHRAbsolute) triggered.push('hr_absolute');
-      else if (currentHR >= computed.warnHRAbsolute) triggered.push('hr_absolute');
-
-      if (hrTrend >= computed.hrTrendCrit) triggered.push('hr_trend');
-      else if (hrTrend >= computed.hrTrendWarn) triggered.push('hr_trend');
-
-      if (deltaSBP >= computed.critSBPDrop) triggered.push('sbp_drop');
-      else if (deltaSBP >= computed.warnSBPDrop) triggered.push('sbp_drop');
-
-      if (currentSBP <= computed.critSBPAbsolute) triggered.push('sbp_absolute');
-      else if (currentSBP <= computed.warnSBPAbsolute) triggered.push('sbp_absolute');
-
-      if (sbpFallRate >= computed.sbpTrendCrit) triggered.push('sbp_trend');
-      else if (sbpFallRate >= computed.sbpTrendWarn) triggered.push('sbp_trend');
+      if (mapDropPct >= profileConstants.critMAPDropPct) triggered.push('sbp_drop');
+      else if (deltaMAP >= profileConstants.warnMAPDrop) triggered.push('sbp_drop');
 
       // ── Determine severity ─────────────────────────────────────────────────
       if (triggered.length === 0) {
@@ -269,11 +236,7 @@ export function usePotsAlerts(sessionId: string): {
 
       const isCritical =
         deltaHR >= computed.critHRDelta ||
-        currentHR >= computed.critHRAbsolute ||
-        hrTrend >= computed.hrTrendCrit ||
-        deltaSBP >= computed.critSBPDrop ||
-        currentSBP <= computed.critSBPAbsolute ||
-        sbpFallRate >= computed.sbpTrendCrit;
+        mapDropPct >= profileConstants.critMAPDropPct;
 
       const severity: 'warning' | 'critical' = isCritical ? 'critical' : 'warning';
 
@@ -289,11 +252,11 @@ export function usePotsAlerts(sessionId: string): {
         severity,
         triggeredBy: triggered,
         currentHR,
-        currentSBP,
+        currentSBP: currentMAP,
         deltaHR,
-        deltaSBP,
-        hrTrendBpmPerMin: hrTrend,
-        sbpTrendMmhgPerMin: sbpFallRate,
+        deltaSBP: deltaMAP,
+        hrTrendBpmPerMin: 0,
+        sbpTrendMmhgPerMin: 0,
         thresholds: computed,
         timestamp: now,
       };

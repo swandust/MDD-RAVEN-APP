@@ -1,0 +1,2 @@
+[functions.send-pots-alert]
+verify_jwt = false

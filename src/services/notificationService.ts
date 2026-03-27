@@ -12,6 +12,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { FirebaseMessaging } from '@capacitor-firebase/messaging';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase } from '../../lib/supabase';
 import type { PotsAlert } from '../types/pots';
 
@@ -178,8 +179,8 @@ export async function dispatchPushNotification(alert: PotsAlert): Promise<void> 
       if (Notification.permission === 'granted') {
         const title =
           alert.severity === 'critical'
-            ? 'POTS Alert — Immediate Attention'
-            : 'POTS Warning';
+            ? '⚠️ CRITICAL: POTS Alert'
+            : '🚨 Warning: POTS Alert';
         const body = `HR +${Math.round(alert.deltaHR)} bpm · SBP ${Math.round(alert.currentSBP)} mmHg`;
 
         new Notification(title, { body, icon: '/icon.png' });
@@ -223,6 +224,25 @@ export function initAndroidPushListeners(
         thresholds:         JSON.parse(data.thresholds ?? '{}') as PotsAlert['thresholds'],
         timestamp:          Number(data.timestamp),
       };
+
+      // Post a local notification so it appears in the system tray even when
+      // the app is foregrounded (FCM suppresses the tray notification in that case).
+      const title = incomingAlert.severity === 'critical'
+        ? '⚠️ CRITICAL: POTS Alert'
+        : '🚨 Warning: POTS Alert';
+      const body = incomingAlert.severity === 'critical'
+        ? `Your heart rate jumped by +${Math.round(incomingAlert.deltaHR)} bpm. Sit or lie down immediately — high fainting risk!`
+        : `Your heart rate increased by +${Math.round(incomingAlert.deltaHR)} bpm. Sit down if you feel dizzy, lightheaded, or unwell.`;
+
+      void LocalNotifications.schedule({
+        notifications: [{
+          id: Date.now() % 2147483647,
+          title,
+          body,
+          schedule: { at: new Date(Date.now() + 100) },
+        }],
+      });
+
       onAlert(incomingAlert);
     } catch (err) {
       console.warn('[notificationService] Failed to parse incoming push payload:', err);

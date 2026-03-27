@@ -171,8 +171,8 @@ async function getAccessToken(serviceAccountJson: string): Promise<string> {
 function buildNotificationContent(payload: AlertPayload): { title: string; body: string } {
   const title =
     payload.severity === 'critical'
-      ? 'POTS Alert — Immediate Attention'
-      : 'POTS Warning'
+      ? '⚠️ CRITICAL: POTS Alert'
+      : '🚨 Warning: POTS Alert'
 
   const deltaHRStr =
     payload.deltaHR >= 0

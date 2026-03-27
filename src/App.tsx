@@ -11,7 +11,6 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { BiodataOnboarding } from './components/BiodataOnboarding';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AlertProvider } from './context/AlertContext';
-import { AlertBanner } from './components/alerts/AlertBanner';
 
 // Main app component with tab navigation (only shown when authenticated)
 function MainApp() {
@@ -154,7 +153,6 @@ function AlertAwareApp({ children }: { children: ReactNode }) {
     <AlertProvider
       sessionId="session_4679"
     >
-      <AlertBanner />
       {children}
     </AlertProvider>
   );

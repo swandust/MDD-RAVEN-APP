@@ -3,12 +3,9 @@
  *
  * Unit tests for the pure threshold evaluation logic extracted from usePotsAlerts.
  *
- * NOTE — evaluateAlert is defined as a closure inside the hook's useEffect and
- * cannot be directly exported without restructuring the hook. Instead, this file
- * provides `evaluateBuffer`: a standalone pure function that exactly mirrors the
- * hook's internal logic, using only the exported buildThresholds and
- * deriveProfileConstants. Any divergence between this helper and the hook's
- * closure would be caught by the integration test (Test 1).
+ * Unified alert logic:
+ *   Warning  — HR delta ≥ 30 bpm  OR  MAP drop ≥ 5 mmHg
+ *   Critical — HR delta ≥ 40 bpm  OR  MAP drop ≥ 10%
  */
 
 import { describe, it, expect } from 'vitest'
@@ -18,10 +15,9 @@ import {
 } from '../usePotsAlerts'
 import type { AlertThresholds, PatientProfile, PotsAlert, TriggeredBy, VitalsReading } from '../../types/pots'
 
-// ─── Constants (mirrored from usePotsAlerts — update if the source changes) ───
+// ─── Constants (mirrored from usePotsAlerts) ──────────────────────────────────
 
-const BASELINE_NEAR_EDGE_MS = 5 * 60 * 1000   // readings older than this → baseline
-const TREND_WINDOW_MS = 2 * 60 * 1000
+const BASELINE_NEAR_EDGE_MS = 5 * 60 * 1000
 const CURRENT_SAMPLE_COUNT = 3
 const MIN_BASELINE_READINGS = 5
 const DEBOUNCE_MS = 60 * 1000
@@ -37,22 +33,10 @@ function median(values: number[]): number {
     : sorted[mid]
 }
 
-function slopePerMin(points: Array<{ x: number; y: number }>): number {
-  const n = points.length
-  if (n < 2) return 0
-  const sumX = points.reduce((a, p) => a + p.x, 0)
-  const sumY = points.reduce((a, p) => a + p.y, 0)
-  const sumXY = points.reduce((a, p) => a + p.x * p.y, 0)
-  const sumX2 = points.reduce((a, p) => a + p.x * p.x, 0)
-  const denom = n * sumX2 - sumX * sumX
-  if (denom === 0) return 0
-  return ((n * sumXY - sumX * sumY) / denom) * 60_000
+function computeMAP(systolicBP: number, diastolicBP: number): number {
+  return diastolicBP + (systolicBP - diastolicBP) / 3
 }
 
-/**
- * Pure equivalent of the hook's evaluateAlert closure.
- * State (lastAlertRef, setAlert, setThresholds) is replaced by explicit params/returns.
- */
 function evaluateBuffer(
   buffer: VitalsReading[],
   profile: PatientProfile,
@@ -73,7 +57,7 @@ function evaluateBuffer(
   }
 
   const baselineHR  = median(baselineReadings.map((r) => r.heartRate))
-  const baselineSBP = median(baselineReadings.map((r) => r.systolicBP))
+  const baselineMAP = median(baselineReadings.map((r) => computeMAP(r.systolicBP, r.diastolicBP)))
 
   const currentSample = recentReadings.slice(-CURRENT_SAMPLE_COUNT)
   if (currentSample.length === 0) {
@@ -81,48 +65,28 @@ function evaluateBuffer(
   }
 
   const currentHR  = median(currentSample.map((r) => r.heartRate))
-  const currentSBP = median(currentSample.map((r) => r.systolicBP))
-  const computed   = buildThresholds(profileConstants, baselineHR, baselineSBP)
+  const currentMAP = median(currentSample.map((r) => computeMAP(r.systolicBP, r.diastolicBP)))
+  const computed   = buildThresholds(profileConstants, baselineHR, baselineMAP)
 
-  const deltaHR  = currentHR  - baselineHR
-  const deltaSBP = baselineSBP - currentSBP
-
-  const trendWindow = buffer.filter((r) => now - r.timestamp <= TREND_WINDOW_MS)
-  const hrTrend    = slopePerMin(trendWindow.map((r) => ({ x: r.timestamp, y: r.heartRate })))
-  const sbpTrend   = slopePerMin(trendWindow.map((r) => ({ x: r.timestamp, y: r.systolicBP })))
-  const sbpFallRate = -sbpTrend
+  const deltaHR    = currentHR - baselineHR
+  const deltaMAP   = baselineMAP - currentMAP  // positive = drop
+  const mapDropPct = baselineMAP > 0 ? deltaMAP / baselineMAP : 0
 
   const triggered: TriggeredBy[] = []
 
-  if      (deltaHR  >= computed.critHRDelta)    triggered.push('hr_delta')
-  else if (deltaHR  >= computed.warnHRDelta)    triggered.push('hr_delta')
+  if      (deltaHR    >= computed.critHRDelta)             triggered.push('hr_delta')
+  else if (deltaHR    >= computed.warnHRDelta)             triggered.push('hr_delta')
 
-  if      (currentHR >= computed.critHRAbsolute) triggered.push('hr_absolute')
-  else if (currentHR >= computed.warnHRAbsolute) triggered.push('hr_absolute')
-
-  if      (hrTrend >= computed.hrTrendCrit)     triggered.push('hr_trend')
-  else if (hrTrend >= computed.hrTrendWarn)     triggered.push('hr_trend')
-
-  if      (deltaSBP >= computed.critSBPDrop)    triggered.push('sbp_drop')
-  else if (deltaSBP >= computed.warnSBPDrop)    triggered.push('sbp_drop')
-
-  if      (currentSBP <= computed.critSBPAbsolute) triggered.push('sbp_absolute')
-  else if (currentSBP <= computed.warnSBPAbsolute) triggered.push('sbp_absolute')
-
-  if      (sbpFallRate >= computed.sbpTrendCrit) triggered.push('sbp_trend')
-  else if (sbpFallRate >= computed.sbpTrendWarn) triggered.push('sbp_trend')
+  if      (mapDropPct >= profileConstants.critMAPDropPct)  triggered.push('sbp_drop')
+  else if (deltaMAP   >= profileConstants.warnMAPDrop)     triggered.push('sbp_drop')
 
   if (triggered.length === 0) {
     return { alert: null, thresholds: computed, nextLastAlert: lastAlert }
   }
 
   const isCritical =
-    deltaHR    >= computed.critHRDelta    ||
-    currentHR  >= computed.critHRAbsolute ||
-    hrTrend    >= computed.hrTrendCrit    ||
-    deltaSBP   >= computed.critSBPDrop    ||
-    currentSBP <= computed.critSBPAbsolute ||
-    sbpFallRate >= computed.sbpTrendCrit
+    deltaHR    >= computed.critHRDelta ||
+    mapDropPct >= profileConstants.critMAPDropPct
 
   const severity: 'warning' | 'critical' = isCritical ? 'critical' : 'warning'
 
@@ -136,11 +100,11 @@ function evaluateBuffer(
     severity,
     triggeredBy: triggered,
     currentHR,
-    currentSBP,
+    currentSBP: currentMAP,
     deltaHR,
-    deltaSBP,
-    hrTrendBpmPerMin: hrTrend,
-    sbpTrendMmhgPerMin: sbpFallRate,
+    deltaSBP: deltaMAP,
+    hrTrendBpmPerMin: 0,
+    sbpTrendMmhgPerMin: 0,
     thresholds: computed,
     timestamp: now,
   }
@@ -155,26 +119,24 @@ function reading(
   timestamp: number,
   heartRate: number,
   systolicBP: number,
+  diastolicBP = 70,
 ): VitalsReading {
-  return { id, timestamp, heartRate, systolicBP, diastolicBP: 70, pttMs: null }
+  return { id, timestamp, heartRate, systolicBP, diastolicBP, pttMs: null }
 }
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-// now = 10 minutes from epoch zero (in ms)
 const NOW = 10 * 60 * 1000   // 600_000 ms
 
-// Five baseline readings (> 5 min before NOW → timestamps ≤ 300_000)
-function baselineReadings(heartRate: number, systolicBP: number): VitalsReading[] {
+function baselineReadings(heartRate: number, systolicBP: number, diastolicBP = 70): VitalsReading[] {
   return [0, 60_000, 120_000, 180_000, 240_000].map((t, i) =>
-    reading(`b${i}`, t, heartRate, systolicBP),
+    reading(`b${i}`, t, heartRate, systolicBP, diastolicBP),
   )
 }
 
-// Three recent readings (< 5 min before NOW → timestamps > 300_000)
-function recentReadings(heartRate: number, systolicBP: number): VitalsReading[] {
+function recentReadings(heartRate: number, systolicBP: number, diastolicBP = 70): VitalsReading[] {
   return [360_000, 420_000, 480_000].map((t, i) =>
-    reading(`r${i}`, t, heartRate, systolicBP),
+    reading(`r${i}`, t, heartRate, systolicBP, diastolicBP),
   )
 }
 
@@ -182,54 +144,38 @@ function adultProfile(age = 35): PatientProfile {
   return { age, biologicalSex: 'female', heightCm: 165, weightKg: 65 }
 }
 
+// ─── deriveProfileConstants ───────────────────────────────────────────────────
+
+describe('deriveProfileConstants', () => {
+  it('always returns warnHRDelta=30 and critHRDelta=40 regardless of age', () => {
+    for (const age of [16, 19, 35, 65]) {
+      const c = deriveProfileConstants(adultProfile(age))
+      expect(c.warnHRDelta).toBe(30)
+      expect(c.critHRDelta).toBe(40)
+    }
+  })
+
+  it('always returns warnMAPDrop=5 and critMAPDropPct=0.10', () => {
+    const c = deriveProfileConstants(adultProfile(35))
+    expect(c.warnMAPDrop).toBe(5)
+    expect(c.critMAPDropPct).toBe(0.10)
+  })
+})
+
 // ─── buildThresholds ──────────────────────────────────────────────────────────
 
 describe('buildThresholds', () => {
-  it('uses critHRDelta 40 for age < 19', () => {
-    const c = deriveProfileConstants(adultProfile(16))
-    expect(c.critHRDelta).toBe(40)
-    const t = buildThresholds(c, 70, 120)
-    expect(t.critHRDelta).toBe(40)
+  it('sets warnSBPDrop to warnMAPDrop (5)', () => {
+    const c = deriveProfileConstants(adultProfile())
+    const t = buildThresholds(c, 70, 86)
+    expect(t.warnSBPDrop).toBe(5)
   })
 
-  it('uses critHRDelta 30 for age >= 19', () => {
-    const c = deriveProfileConstants(adultProfile(19))
-    expect(c.critHRDelta).toBe(30)
-    const t = buildThresholds(c, 70, 120)
-    expect(t.critHRDelta).toBe(30)
-  })
-
-  it('applies ageFactor 0.75 for age > 60 — tightens critSBPDrop to 15', () => {
-    const c = deriveProfileConstants(adultProfile(65))
-    // ageFactor=0.75, critSBPDrop = round(20*0.75) = 15  vs 20 for a standard adult
-    expect(c.critSBPDrop).toBe(15)
-    const t = buildThresholds(c, 70, 120)
-    expect(t.critSBPDrop).toBe(15)
-  })
-
-  it('applies ageFactor 1.1 for age < 20 — raises critSBPDrop to 22', () => {
-    const c = deriveProfileConstants(adultProfile(16))
-    // ageFactor=1.1, critSBPDrop = round(20*1.1) = 22
-    expect(c.critSBPDrop).toBe(22)
-    const t = buildThresholds(c, 70, 120)
-    expect(t.critSBPDrop).toBe(22)
-  })
-
-  it('critSBPAbsolute never goes below 80', () => {
-    const c = deriveProfileConstants(adultProfile(35))
-    // With baseline SBP=90, adult critSBPDrop=20 → max(80, 90-20-5)=max(80,65)=80
-    const t = buildThresholds(c, 70, 90)
-    expect(t.critSBPAbsolute).toBe(80)
-  })
-
-  it('warnHRDelta never goes below 20', () => {
-    // Adults (critHRDelta=30): warnHRDelta = max(20, 30-10) = max(20,20) = 20
-    const adult = deriveProfileConstants(adultProfile(35))
-    expect(buildThresholds(adult, 70, 120).warnHRDelta).toBe(20)
-
-    // Paediatric (critHRDelta=40): warnHRDelta = max(20, 40-10) = 30 — still ≥ 20
-    const paed = deriveProfileConstants(adultProfile(16))
-    expect(buildThresholds(paed, 70, 120).warnHRDelta).toBeGreaterThanOrEqual(20)
+  it('sets critSBPDrop to 10% of baselineMAP', () => {
+    const c = deriveProfileConstants(adultProfile())
+    const baselineMAP = 86
+    const t = buildThresholds(c, 70, baselineMAP)
+    expect(t.critSBPDrop).toBe(Math.round(baselineMAP * 0.10))
   })
 })
 
@@ -237,14 +183,12 @@ describe('buildThresholds', () => {
 
 describe('evaluateAlert', () => {
   it('returns null when buffer has fewer than 5 baseline readings', () => {
-    // 3 recent readings but 0 baseline readings → baseline count < MIN_BASELINE_READINGS
     const buffer = recentReadings(70, 120)
     const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(alert).toBeNull()
   })
 
   it('returns null when baseline window has fewer than 5 readings', () => {
-    // Only 4 baseline readings — one short of the required 5
     const buffer = [0, 60_000, 120_000, 180_000].map((t, i) =>
       reading(`b${i}`, t, 70, 120),
     )
@@ -252,89 +196,62 @@ describe('evaluateAlert', () => {
     expect(alert).toBeNull()
   })
 
-  it('returns null when recent window is empty (no readings in last 5 minutes)', () => {
-    // 5 baseline readings but nothing recent — currentSample is empty
+  it('returns null when recent window is empty', () => {
     const buffer = baselineReadings(70, 120)
     const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(alert).toBeNull()
   })
 
-  it('returns warning when deltaHR >= warnHRDelta but < critHRDelta', () => {
-    // Adult: warnHRDelta=20, critHRDelta=30. deltaHR=23 → warning
+  it('returns warning when deltaHR >= 30 but < 40', () => {
+    // deltaHR = 103 - 70 = 33 → warning
     const buffer = [
       ...baselineReadings(70, 120),
-      ...recentReadings(93, 120),  // deltaHR = 93-70 = 23
+      ...recentReadings(103, 120),
     ]
     const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(alert?.severity).toBe('warning')
     expect(alert?.triggeredBy).toContain('hr_delta')
   })
 
-  it('returns critical when deltaHR >= critHRDelta', () => {
-    // Adult: critHRDelta=30. deltaHR=35 → critical
+  it('returns critical when deltaHR >= 40', () => {
+    // deltaHR = 112 - 70 = 42 → critical
     const buffer = [
       ...baselineReadings(70, 120),
-      ...recentReadings(105, 120),  // deltaHR = 35
+      ...recentReadings(112, 120),
     ]
     const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(alert?.severity).toBe('critical')
     expect(alert?.triggeredBy).toContain('hr_delta')
   })
 
-  it('returns critical when absolute HR >= critHRAbsolute', () => {
-    // Adult baseline HR=70: critHRAbsolute = max(100, min(120, 70+30)) = 100
-    // current HR=105 ≥ 100 → critical hr_absolute (also deltaHR=35 ≥ 30 → hr_delta)
+  it('returns warning when MAP drop >= 5 mmHg but < 10%', () => {
+    // Baseline MAP = 70 + (120-70)/3 = 86.67, 10% = 8.67
+    // systolicBP=104 → MAP = 70 + 34/3 = 81.33, drop = 5.33 → warning
     const buffer = [
-      ...baselineReadings(70, 120),
-      ...recentReadings(105, 120),
-    ]
-    const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
-    expect(alert?.severity).toBe('critical')
-    expect(alert?.triggeredBy).toContain('hr_absolute')
-  })
-
-  it('returns warning when SBP drop >= warnSBPDrop but < critSBPDrop', () => {
-    // Adult: warnSBPDrop=10, critSBPDrop=20. deltaSBP=13 → warning sbp_drop
-    const buffer = [
-      ...baselineReadings(70, 120),
-      ...recentReadings(70, 107),  // deltaSBP = 120-107 = 13
+      ...baselineReadings(70, 120, 70),
+      ...recentReadings(70, 104, 70),
     ]
     const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(alert?.severity).toBe('warning')
     expect(alert?.triggeredBy).toContain('sbp_drop')
   })
 
-  it('returns critical when SBP drop >= critSBPDrop', () => {
-    // Adult: critSBPDrop=20. deltaSBP=25 → critical
+  it('returns critical when MAP drop >= 10%', () => {
+    // Baseline MAP = 86.67, 10% drop = 8.67
+    // systolicBP=93 → MAP = 70 + 23/3 = 77.67, drop = 9.0 → critical
     const buffer = [
-      ...baselineReadings(70, 120),
-      ...recentReadings(70, 95),   // deltaSBP = 120-95 = 25
+      ...baselineReadings(70, 120, 70),
+      ...recentReadings(70, 93, 70),
     ]
     const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(alert?.severity).toBe('critical')
-    expect(alert?.triggeredBy).toContain('sbp_drop')
-  })
-
-  it('includes all breached criteria in triggeredBy array', () => {
-    // Simultaneous HR and SBP breaches:
-    //   deltaHR = 35 ≥ critHRDelta(30)       → hr_delta  (critical)
-    //   currentHR = 105 ≥ critHRAbsolute(100) → hr_absolute (critical)
-    //   deltaSBP = 25 ≥ critSBPDrop(20)       → sbp_drop  (critical)
-    const buffer = [
-      ...baselineReadings(70, 120),
-      ...recentReadings(105, 95),
-    ]
-    const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
-    expect(alert?.severity).toBe('critical')
-    expect(alert?.triggeredBy).toContain('hr_delta')
-    expect(alert?.triggeredBy).toContain('hr_absolute')
     expect(alert?.triggeredBy).toContain('sbp_drop')
   })
 
   it('returns null when all values are within normal range', () => {
     const buffer = [
       ...baselineReadings(70, 120),
-      ...recentReadings(72, 118),  // deltaHR=2, deltaSBP=2 — both well within thresholds
+      ...recentReadings(72, 119),
     ]
     const { alert } = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(alert).toBeNull()
@@ -343,13 +260,10 @@ describe('evaluateAlert', () => {
   it('debounces — does not re-emit identical severity+triggeredBy within 60 s', () => {
     const buffer = [
       ...baselineReadings(70, 120),
-      ...recentReadings(105, 120),  // deltaHR=35 → critical hr_delta + hr_absolute
+      ...recentReadings(112, 120),
     ]
-    // First call — should emit
     const first = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(first.alert).not.toBeNull()
-
-    // Second call — same buffer, same now, within 60 s window
     const second = evaluateBuffer(buffer, adultProfile(), NOW, first.nextLastAlert)
     expect(second.alert).toBeNull()
   })
@@ -357,12 +271,10 @@ describe('evaluateAlert', () => {
   it('re-emits after debounce window expires', () => {
     const buffer = [
       ...baselineReadings(70, 120),
-      ...recentReadings(105, 120),
+      ...recentReadings(112, 120),
     ]
     const first = evaluateBuffer(buffer, adultProfile(), NOW, null)
     expect(first.alert).not.toBeNull()
-
-    // Advance time beyond DEBOUNCE_MS (60 s = 60_000 ms)
     const later = NOW + DEBOUNCE_MS + 1_000
     const second = evaluateBuffer(buffer, adultProfile(), later, first.nextLastAlert)
     expect(second.alert).not.toBeNull()

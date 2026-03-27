@@ -15,7 +15,6 @@
 
 import { useEffect, useState } from 'react';
 import { useAlertContext } from '../../context/AlertContext';
-import type { PotsAlert, TriggeredBy } from '../../types/pots';
 
 // ─── Colour tokens (inline — never rely on Tailwind for alert colours) ─────────
 
@@ -32,26 +31,6 @@ const COLOURS = {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatElapsed(timestamp: number): string {
-  const elapsedSec = Math.floor((Date.now() - timestamp) / 1000);
-  if (elapsedSec < 60) return `${elapsedSec}s ago`;
-  return `${Math.floor(elapsedSec / 60)}m ago`;
-}
-
-const TRIGGER_LABELS: Record<TriggeredBy, (alert: PotsAlert) => string> = {
-  hr_delta:     (a) => `Heart rate rose ${Math.round(a.deltaHR)} bpm above baseline`,
-  hr_absolute:  (a) => `Heart rate reached ${Math.round(a.currentHR)} bpm`,
-  hr_trend:     (a) => `Heart rate rising at ${a.hrTrendBpmPerMin.toFixed(1)} bpm/min`,
-  sbp_drop:     (a) => `Blood pressure dropped ${Math.round(a.deltaSBP)} mmHg below baseline`,
-  sbp_absolute: (a) => `Blood pressure fell to ${Math.round(a.currentSBP)} mmHg`,
-  sbp_trend:    (a) => `Blood pressure falling at ${a.sbpTrendMmhgPerMin.toFixed(1)} mmHg/min`,
-};
-
-function primaryTriggerMessage(alert: PotsAlert): string {
-  const trigger = alert.triggeredBy[0] as TriggeredBy | undefined;
-  if (!trigger) return 'POTS alert triggered';
-  return TRIGGER_LABELS[trigger](alert);
-}
 
 // Simple SVG icons — avoids adding a dependency for two glyphs.
 function WarningIcon({ color }: { color: string }) {
@@ -123,7 +102,15 @@ export function AlertBanner() {
   const palette = COLOURS[activeAlert.severity][isDark ? 'dark' : 'light'];
 
   const severityLabel =
-    activeAlert.severity === 'critical' ? 'Critical — POTS event' : 'Warning';
+    activeAlert.severity === 'critical' ? '🚨 Critical POTS Alert' : '⚠️ Warning POTS Alert';
+
+  const baselineHR = Math.round(activeAlert.currentHR - activeAlert.deltaHR);
+  const currentHR = Math.round(activeAlert.currentHR);
+  const deltaHR = Math.round(activeAlert.deltaHR);
+  const alertBody =
+    activeAlert.severity === 'critical'
+      ? `Your heart rate jumped from ${baselineHR} to ${currentHR} bpm (+${deltaHR}). Sit or lie down immediately - high fainting risk!`
+      : `Your heart rate increased from ${baselineHR} to ${currentHR} bpm (+${deltaHR}). Sit down if you feel dizzy, lightheaded, or unwell.`;
 
   return (
     <div
@@ -183,21 +170,9 @@ export function AlertBanner() {
           style={{
             fontSize: '13px',
             lineHeight: '1.4',
-            marginBottom: '4px',
           }}
         >
-          {primaryTriggerMessage(activeAlert)}
-        </div>
-        <div
-          style={{
-            fontSize: '12px',
-            opacity: 0.8,
-            lineHeight: '1.4',
-          }}
-        >
-          HR {Math.round(activeAlert.currentHR)} bpm · SBP{' '}
-          {Math.round(activeAlert.currentSBP)} mmHg ·{' '}
-          {formatElapsed(activeAlert.timestamp)}
+          {alertBody}
         </div>
       </div>
 
