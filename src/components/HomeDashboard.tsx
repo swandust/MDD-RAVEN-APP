@@ -20,6 +20,7 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
   const [heartRateHistory, setHeartRateHistory] = useState<number[]>([]);
   const [hoveredBP, setHoveredBP] = useState<number | null>(null);
   const [hoveredHR, setHoveredHR] = useState<number | null>(null);
+  const [vitalsTimestamp, setVitalsTimestamp] = useState<string | null>(null);
   const [todayDate] = useState(new Date().toLocaleDateString('en-US', { 
     weekday: 'long', 
     year: 'numeric', 
@@ -49,7 +50,8 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
       setSystolic(latest.systolic);
       setDiastolic(latest.diastolic);
       setStatusText(latest.status);
-      
+      setVitalsTimestamp(latest.created_at);
+
       // Update trend graphs
       const systolicValues = data.map(item => item.systolic).reverse();
       const heartRateValues = data.map(item => item.heart_rate).reverse();
@@ -255,6 +257,11 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
           </div>
           <div className="text-3xl mb-1">{heartRate} <span className="text-xs">bpm</span></div>
           <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Pulse Pressure: {pulsePressure} mmHg</div>
+          {vitalsTimestamp && (
+            <div className={`text-xs mt-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              {new Date(vitalsTimestamp).toLocaleString()}
+            </div>
+          )}
         </Card>
 
         <Card className={`${darkMode ? 'bg-gradient-to-br from-purple-900/40 to-pink-900/40 border-purple-800' : 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200'} border rounded-2xl p-4 shadow-sm`}>
@@ -264,6 +271,11 @@ export function HomeDashboard({ darkMode }: { darkMode: boolean }) {
           </div>
           <div className="text-3xl mb-1">{systolic}/{diastolic} <span className="text-xs">mmHg</span></div>
           <div className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>MAP: {Math.round(diastolic + (systolic - diastolic)/3)} mmHg</div>
+          {vitalsTimestamp && (
+            <div className={`text-xs mt-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              {new Date(vitalsTimestamp).toLocaleString()}
+            </div>
+          )}
         </Card>
       </div>
 

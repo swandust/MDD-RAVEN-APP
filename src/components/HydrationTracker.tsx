@@ -15,7 +15,6 @@ interface FluidEvent {
   bottle_weight?: number;
 }
 
-
 interface HydrationTrackerProps {
   darkMode: boolean;
   esp32Url?: string; // e.g., "http://192.168.1.100" or "https://xyz.ngrok-free.app"
@@ -31,6 +30,7 @@ export function HydrationTracker({ darkMode, esp32Url }: HydrationTrackerProps) 
   const [refilling, setRefilling] = useState(false);
 
   const goal = 3.0; // liters
+  // Filter only today's consumption events for total intake
   const currentIntake = fluidEvents
     .filter(e => e.type === 'consumption')
     .reduce((sum, e) => sum + e.amount, 0);
@@ -43,12 +43,26 @@ export function HydrationTracker({ darkMode, esp32Url }: HydrationTrackerProps) 
   };
   const status = getHydrationStatus();
 
+  // Helper: get today's date range in UTC (ISO strings)
+  const getTodayRange = () => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    return {
+      start: start.toISOString(),
+      end: end.toISOString(),
+    };
+  };
+
   // ---------- Data Fetching ----------
   const fetchFluidEvents = async () => {
     try {
+      const { start, end } = getTodayRange();
       const { data, error } = await supabase
         .from('fluid_events')
         .select('*')
+        .gte('created_at', start)
+        .lt('created_at', end)
         .order('created_at', { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -85,7 +99,13 @@ export function HydrationTracker({ darkMode, esp32Url }: HydrationTrackerProps) 
     const eventsSubscription = supabase
       .channel('fluid_events_changes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'fluid_events' }, (payload) => {
-        setFluidEvents(prev => [payload.new as FluidEvent, ...prev]);
+        const newEvent = payload.new as FluidEvent;
+        // Only add if it's today's event (to keep the list clean)
+        const todayStart = new Date().setHours(0,0,0,0);
+        const eventDate = new Date(newEvent.created_at).getTime();
+        if (eventDate >= todayStart) {
+          setFluidEvents(prev => [newEvent, ...prev]);
+        }
       })
       .subscribe();
 
@@ -113,7 +133,6 @@ export function HydrationTracker({ darkMode, esp32Url }: HydrationTrackerProps) 
         headers: { 'ngrok-skip-browser-warning': 'true' },
       });
       if (!response.ok) throw new Error('Tare failed');
-      // Optionally fetch the new weight after a short delay
       setTimeout(fetchCurrentWeight, 500);
     } catch (err) {
       console.error(err);
@@ -149,7 +168,7 @@ export function HydrationTracker({ darkMode, esp32Url }: HydrationTrackerProps) 
     }
   };
 
-  // ---------- Water Bottle Component (unchanged, but we need to pass percentage/status) ----------
+  // ---------- Water Bottle Component (unchanged) ----------
   const WaterBottle = () => {
     const bottleHeight = 360;
     const bottleWidth = 200;
